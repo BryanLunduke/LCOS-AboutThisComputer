@@ -1,3 +1,14 @@
+lunduke-about (0.2.2-1) unstable; urgency=medium
+
+  * Window/menu icon: simple LCOS outline (org.lunduke.AboutThisComputer)
+  * Theme background via @theme_bg_color (no hardcoded #c0c0c0)
+  * Full-width RAM Used / RAM Free bar (Mac OS 9 style)
+  * Top list row "LCOS System" (non-closable system remainder)
+  * Empty list copy: "No Running Software."
+  * Software menu Name: "About This Computer"
+
+ -- Phil <phil@brushpad.local>  Sat, 26 Sep 2026 14:55:00 -0500
+
 lunduke-about (0.2.1-1) unstable; urgency=medium
 
   * Labels: "LCOS version:" → "OS Version:"; "System CPU:" → "CPU:"

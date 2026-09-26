@@ -10,7 +10,9 @@ Glib::RefPtr<Application> Application::create() {
 }
 
 Application::Application()
-    : Gtk::Application(APP_ID, Gio::APPLICATION_FLAGS_NONE) {}
+    : Gtk::Application(APP_ID, Gio::APPLICATION_FLAGS_NONE) {
+  Gtk::Window::set_default_icon_name(APP_ID);
+}
 
 void Application::on_activate() {
   auto* window = new MainWindow();

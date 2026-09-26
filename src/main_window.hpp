@@ -3,6 +3,7 @@
 
 #include "system_info.hpp"
 #include "marquee.hpp"
+#include "memory_bar.hpp"
 #include "window_enum.hpp"
 
 #include <gtkmm.h>
@@ -19,6 +20,8 @@ private:
   void load_logo();
   void load_supporters();
   void refresh_app_list();
+  void update_ram_bar();
+  Glib::RefPtr<Gdk::Pixbuf> load_lcos_system_icon() const;
   void on_force_close(const AppEntry& entry);
   bool on_refresh_tick();
   std::string find_data_file(const std::string& relative) const;
@@ -31,6 +34,7 @@ private:
   Gtk::Label mem_label_;
   Gtk::Label cpu_label_;
   Gtk::Label gpu_label_;
+  MemoryBar ram_bar_;
   Gtk::ScrolledWindow list_scroll_;
   Gtk::Box list_box_{Gtk::ORIENTATION_VERTICAL, 0};
   Glib::RefPtr<Gtk::CssProvider> css_;

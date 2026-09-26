@@ -1,12 +1,16 @@
 # About This Computer (`lunduke-about`)
 
 Classic Mac OS 9–inspired **About This Computer** window for LCOS.
-Replaces Software-menu **About your Computer** (`xfce4-about.desktop` → `lunduke-about`) in LCOS live-07.
+Replaces Software-menu **About This Computer** (`xfce4-about.desktop` → `lunduke-about`) in LCOS live-07.
+
+**v0.2.2** — LCOS outline window/menu icon; theme background (`@theme_bg_color`);
+full-width RAM Used/Free bar; top **LCOS System** row; Software menu Name
+`About This Computer`.
 
 **v0.2.1** — Label tweaks: `OS Version:` / `CPU:` (was `LCOS version:` / `System CPU:`).
 
 **v0.2** — UI polish: full LCOS mark (rings), two-column system stats, left-aligned
-app names, `MB RAM Used` text (no bars), hide self from the app list, resizable
+app names, `MB RAM Used` text (no per-row bars), hide self from the app list, resizable
 with a 520×480 minimum.
 
 ## Requirements
@@ -48,30 +52,35 @@ or after reinstall.
 
 ### Logo
 
-Ships Bob’s **full** black LCOS mark (`data/pixmaps/lcos-logo-black.*`) — circular
-rings/arcs, banner box, and wordmark — copied from the canonical branding assets.
-Does **not** use the old color `/usr/share/pixmaps/lcos-logo.png` or the wordmark-only bake.
+Header image ships Bob’s **full** black LCOS mark (`data/pixmaps/lcos-logo-black.*`) —
+circular rings/arcs, banner box, and wordmark.
 
-## Features (v0.2.1)
+Window / Software-menu icon uses the **simple LCOS outline** seal
+(`org.lunduke.AboutThisComputer` hicolor PNGs), matching `lcos32.png` / `lcos-logo.png`
+— not the full rings mark and not a generic document icon.
+
+## Features (v0.2.2)
 
 - OS Version from `/etc/os-release` (falls back to LCOS live recipe sample if host isn’t LCOS)
 - Total RAM, CPU model (`/proc/cpuinfo`), GPU (best-effort `lspci`) in a two-column stats row
+- Full-width Mac OS 9–style RAM bar (`X RAM Used` / `X RAM Free` overlays)
 - Scrolling “Supporters of LCOS” marquee
-- List of graphical toplevel apps (X11 `_NET_CLIENT_LIST` / WM_STATE), RSS as `N MB RAM Used`
+- Top **LCOS System** row (system RAM remainder; not Force-Closable), then graphical apps
+- App RSS as `N MB RAM Used`; empty-list copy: `No Running Software.`
 - About This Computer itself is omitted from the list
-- Right-click → **Force Close** (confirm → SIGKILL); skips session-critical bits
+- Right-click → **Force Close** (confirm → SIGKILL); protected rows have no menu action
+- Theme window background (`@theme_bg_color`); white app-list frame
 - Window resizable; minimum size 520×480 (v0.1 default layout)
-
 
 ## Package (.deb)
 
 ```bash
 ./packaging/build-deb.sh
-# → packaging/debs/lunduke-about_0.2.1-1_amd64.deb
+# → packaging/debs/lunduke-about_0.2.2-1_amd64.deb
 ```
 
 Installs `/usr/bin/lunduke-about`, data under `/usr/share/lunduke-about/`,
-desktop file, and hicolor icons.
+desktop file, and hicolor outline icons.
 
 ## License
 

@@ -1,7 +1,7 @@
 project(
   'lunduke-about',
   'cpp',
-  version: '0.2.1',
+  version: '0.2.2',
   license: 'GPL-3.0-or-later',
   meson_version: '>=0.56.0',
   default_options: [
@@ -37,6 +37,7 @@ lunduke_about_sources = files(
   'src/window_enum.cpp',
   'src/marquee.cpp',
   'src/app_row.cpp',
+  'src/memory_bar.cpp',
 )
 
 executable(
@@ -57,8 +58,19 @@ install_data(
   'data/pixmaps/lcos-logo-black-128.png',
   'data/pixmaps/lcos-logo-black-256.png',
   'data/pixmaps/lcos-logo-black-preview.png',
+  'data/pixmaps/lcos-outline-32.png',
+  'data/pixmaps/lcos-outline-256.png',
   install_dir: join_paths(get_option('datadir'), 'lunduke-about', 'pixmaps'),
 )
+
+# Simple LCOS outline for window/menu icon (not the full rings mark).
+icon_sizes = ['16x16', '32x32', '48x48', '128x128', '256x256']
+foreach size : icon_sizes
+  install_data(
+    join_paths('data', 'icons', 'hicolor', size, 'apps', 'org.lunduke.AboutThisComputer.png'),
+    install_dir: join_paths(get_option('datadir'), 'icons', 'hicolor', size, 'apps'),
+  )
+endforeach
 
 install_data(
   'data/org.lunduke.AboutThisComputer.desktop',

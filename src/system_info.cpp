@@ -67,15 +67,37 @@ std::string read_cpu_model() {
   return "Unknown CPU";
 }
 
-long read_mem_total_kb() {
+long read_meminfo_kb(const char* want_key) {
   std::ifstream in("/proc/meminfo");
   std::string key;
   long value = 0;
   std::string unit;
   while (in >> key >> value >> unit) {
-    if (key == "MemTotal:") return value;
+    if (key == want_key) return value;
   }
   return 0;
+}
+
+long read_mem_total_kb() { return read_meminfo_kb("MemTotal:"); }
+
+long read_mem_available_kb() {
+  long avail = read_meminfo_kb("MemAvailable:");
+  if (avail > 0) return avail;
+  // Older kernels: approximate with MemFree + Buffers + Cached
+  long free_kb = read_meminfo_kb("MemFree:");
+  long buffers = read_meminfo_kb("Buffers:");
+  long cached = read_meminfo_kb("Cached:");
+  return free_kb + buffers + cached;
+}
+
+void apply_memory_fields(SystemInfo& info) {
+  info.total_memory_kb = read_mem_total_kb();
+  info.available_memory_kb = read_mem_available_kb();
+  if (info.available_memory_kb > info.total_memory_kb)
+    info.available_memory_kb = info.total_memory_kb;
+  info.used_memory_kb = info.total_memory_kb - info.available_memory_kb;
+  if (info.used_memory_kb < 0) info.used_memory_kb = 0;
+  info.total_memory = format_memory_human(info.total_memory_kb);
 }
 
 std::string read_gpu_lspci() {
@@ -269,11 +291,14 @@ SystemInfo gather_system_info() {
     info.os_pretty = "Unknown OS";
   }
 
-  info.total_memory_kb = read_mem_total_kb();
-  info.total_memory = format_memory_human(info.total_memory_kb);
+  apply_memory_fields(info);
   info.cpu_model = read_cpu_model();
   info.gpu = read_gpu_lspci();
   return info;
+}
+
+void refresh_memory_usage(SystemInfo& info) {
+  apply_memory_fields(info);
 }
 
 }  // namespace lundukeabout

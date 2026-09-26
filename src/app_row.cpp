@@ -47,15 +47,14 @@ void AppRow::set_force_close_handler(ForceCloseHandler handler) {
 
 bool AppRow::on_button_press_event(GdkEventButton* event) {
   if (event->type == GDK_BUTTON_PRESS && event->button == 3) {
+    // Protected rows (e.g. LCOS System): no Force Close action / menu.
+    if (entry_.protected_app) {
+      return true;
+    }
     auto menu = Gtk::make_managed<Gtk::Menu>();
     std::string label = "Force Close " + entry_.name;
     auto item = Gtk::make_managed<Gtk::MenuItem>(label);
-    if (entry_.protected_app) {
-      item->set_sensitive(false);
-      item->set_label(label + " (" + entry_.protect_reason + ")");
-    } else {
-      item->signal_activate().connect(sigc::mem_fun(*this, &AppRow::on_force_close));
-    }
+    item->signal_activate().connect(sigc::mem_fun(*this, &AppRow::on_force_close));
     menu->append(*item);
     menu->show_all();
     menu->popup_at_pointer(reinterpret_cast<GdkEvent*>(event));

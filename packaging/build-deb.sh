@@ -1,10 +1,10 @@
 #!/bin/sh
-# Build lunduke-about_0.2.1-1_amd64.deb into packaging/debs/ (repo-local).
+# Build lunduke-about_0.2.2-1_amd64.deb into packaging/debs/ (repo-local).
 # Does NOT seed lcos-live-07 (Phil seeds by hand into packages.chroot).
 set -eu
 
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
-VERSION="0.2.1-1"
+VERSION="0.2.2-1"
 PKGNAME="lunduke-about_${VERSION}_amd64"
 BUILD="$ROOT/build-deb"
 DEST="$ROOT/packaging/src/lunduke-about"
@@ -19,13 +19,12 @@ meson compile -C "$BUILD"
 rm -rf "$DEST"
 meson install -C "$BUILD" --destdir "$DEST"
 
-# Theme icon for .desktop Icon=org.lunduke.AboutThisComputer
-mkdir -p "$DEST/usr/share/icons/hicolor/128x128/apps" \
-         "$DEST/usr/share/icons/hicolor/256x256/apps"
-cp -a "$ROOT/data/pixmaps/lcos-logo-black-128.png" \
-  "$DEST/usr/share/icons/hicolor/128x128/apps/org.lunduke.AboutThisComputer.png"
-cp -a "$ROOT/data/pixmaps/lcos-logo-black-256.png" \
-  "$DEST/usr/share/icons/hicolor/256x256/apps/org.lunduke.AboutThisComputer.png"
+# Ensure hicolor outline icons are present (meson installs them; reinforce copy).
+for size in 16x16 32x32 48x48 128x128 256x256; do
+  mkdir -p "$DEST/usr/share/icons/hicolor/${size}/apps"
+  cp -a "$ROOT/data/icons/hicolor/${size}/apps/org.lunduke.AboutThisComputer.png" \
+    "$DEST/usr/share/icons/hicolor/${size}/apps/org.lunduke.AboutThisComputer.png"
+done
 
 mkdir -p "$DEST/debian"
 cp "$ROOT/debian/control" "$DEST/debian/control"

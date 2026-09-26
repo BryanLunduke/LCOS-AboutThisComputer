@@ -11,9 +11,13 @@ struct SystemInfo {
   std::string cpu_model;      // from /proc/cpuinfo
   std::string gpu;            // best-effort from lspci
   long total_memory_kb = 0;
+  long available_memory_kb = 0;  // MemAvailable
+  long used_memory_kb = 0;       // MemTotal - MemAvailable
 };
 
 SystemInfo gather_system_info();
+// Re-read /proc/meminfo used/available (for live RAM bar refresh).
+void refresh_memory_usage(SystemInfo& info);
 std::string format_memory_mb(long kb);
 std::string format_memory_human(long kb);
 

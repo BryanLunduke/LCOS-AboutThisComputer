@@ -14,25 +14,30 @@
 namespace lundukeabout {
 namespace {
 
-const char* kPlatinumCss = R"CSS(
+// Empty-list copy retained for reference; UI always shows LCOS System instead.
+[[maybe_unused]] constexpr const char* kNoRunningSoftware = "No Running Software.";
+
+// Theme-aware chrome: no hardcoded platinum greys for window/panel.
+// List frame stays white/readable. Labels inherit dark readable theme fg.
+const char* kAboutCss = R"CSS(
 window.lunduke-about {
-  background-color: #c0c0c0;
-  color: #000000;
+  background-color: @theme_bg_color;
+  color: @theme_fg_color;
 }
 window.lunduke-about * {
   font-family: "Charcoal", "Geneva", "Helvetica", "DejaVu Sans", Sans;
 }
-.platinum-panel {
-  background-color: #c0c0c0;
+.about-panel {
+  background-color: @theme_bg_color;
 }
-.platinum-info {
-  background-color: #c0c0c0;
-  color: #000000;
+.about-info {
+  background-color: @theme_bg_color;
+  color: @theme_fg_color;
   font-size: 13px;
   font-weight: bold;
 }
-.platinum-info label {
-  color: #000000;
+.about-info label {
+  color: @theme_fg_color;
   font-size: 13px;
   font-weight: bold;
 }
@@ -50,11 +55,11 @@ window.lunduke-about * {
 .platinum-list .app-row-bg {
   background-color: #ffffff;
 }
-.platinum-header {
-  background-color: #c0c0c0;
+.about-header {
+  background-color: @theme_bg_color;
 }
 scrollbar.platinum-scroll {
-  background-color: #c0c0c0;
+  background-color: @theme_bg_color;
 }
 scrollbar.platinum-scroll slider {
   background-color: #5a7ec8;
@@ -63,7 +68,7 @@ scrollbar.platinum-scroll slider {
   border: 1px solid #2a4a8a;
 }
 scrollbar.platinum-scroll button {
-  background-color: #a8a8a8;
+  background-color: @theme_bg_color;
   border-radius: 0;
 }
 )CSS";
@@ -72,6 +77,8 @@ scrollbar.platinum-scroll button {
 
 MainWindow::MainWindow() {
   set_title("About This Computer");
+  // Reinforce default icon for WMs that ignore gtk_window_set_default_icon_name.
+  set_icon_name(APP_ID);
   // v0.1 default layout size; keep as minimum while allowing resize larger.
   set_default_size(520, 480);
   set_size_request(520, 480);
@@ -84,7 +91,7 @@ MainWindow::MainWindow() {
   info_ = gather_system_info();
 
   add(root_);
-  root_.get_style_context()->add_class("platinum-panel");
+  root_.get_style_context()->add_class("about-panel");
   root_.set_margin_top(10);
   root_.set_margin_bottom(10);
   root_.set_margin_start(12);
@@ -106,7 +113,7 @@ MainWindow::MainWindow() {
 
   // 3. System info — two columns (left: version + memory; right: CPU + GPU)
   auto* info_cols = Gtk::make_managed<Gtk::Box>(Gtk::ORIENTATION_HORIZONTAL, 24);
-  info_cols->get_style_context()->add_class("platinum-info");
+  info_cols->get_style_context()->add_class("about-info");
   info_cols->set_margin_top(4);
   info_cols->set_margin_bottom(4);
   info_cols->set_halign(Gtk::ALIGN_FILL);
@@ -140,7 +147,13 @@ MainWindow::MainWindow() {
   info_cols->pack_start(*right_col, Gtk::PACK_EXPAND_WIDGET);
   root_.pack_start(*info_cols, Gtk::PACK_SHRINK);
 
-  // 4. Scrollable app list in beveled frame
+  // 4. Full-width RAM Used / Free bar (between stats and app list)
+  ram_bar_.set_margin_top(2);
+  ram_bar_.set_margin_bottom(2);
+  root_.pack_start(ram_bar_, Gtk::PACK_SHRINK);
+  update_ram_bar();
+
+  // 5. Scrollable app list in beveled frame
   auto* frame = Gtk::make_managed<Gtk::Frame>();
   frame->set_shadow_type(Gtk::SHADOW_IN);
   frame->get_style_context()->add_class("platinum-list-frame");
@@ -169,7 +182,7 @@ MainWindow::MainWindow() {
 void MainWindow::apply_platinum_css() {
   css_ = Gtk::CssProvider::create();
   try {
-    css_->load_from_data(kPlatinumCss);
+    css_->load_from_data(kAboutCss);
   } catch (const Glib::Error& e) {
     std::cerr << "CSS error: " << e.what() << std::endl;
   }
@@ -233,6 +246,36 @@ void MainWindow::load_logo() {
   }
 }
 
+Glib::RefPtr<Gdk::Pixbuf> MainWindow::load_lcos_system_icon() const {
+  const char* paths[] = {
+      "icons/hicolor/32x32/apps/org.lunduke.AboutThisComputer.png",
+      "pixmaps/lcos-outline-32.png",
+      "pixmaps/lcos-outline-256.png",
+  };
+  for (const char* rel : paths) {
+    std::string path = find_data_file(rel);
+    try {
+      auto pb = Gdk::Pixbuf::create_from_file(path, 32, 32, true);
+      if (pb) return pb;
+    } catch (...) {
+    }
+  }
+  // Live recipe / system pixmaps fallback
+  const char* sys_paths[] = {
+      "/usr/share/pixmaps/lcos32.png",
+      "/workspace/lcos-live-07/config/includes.chroot/usr/share/pixmaps/lcos32.png",
+      "/usr/share/pixmaps/lcos-logo.png",
+  };
+  for (const char* path : sys_paths) {
+    try {
+      auto pb = Gdk::Pixbuf::create_from_file(path, 32, 32, true);
+      if (pb) return pb;
+    } catch (...) {
+    }
+  }
+  return {};
+}
+
 void MainWindow::load_supporters() {
   std::string path = find_data_file("supporters.txt");
   std::ifstream in(path);
@@ -256,7 +299,15 @@ void MainWindow::load_supporters() {
   marquee_.set_text("Supporters of LCOS:  " + names + "    ");
 }
 
+void MainWindow::update_ram_bar() {
+  refresh_memory_usage(info_);
+  mem_label_.set_text("Built-in Memory:  " + info_.total_memory);
+  ram_bar_.set_memory(info_.used_memory_kb, info_.total_memory_kb);
+}
+
 void MainWindow::refresh_app_list() {
+  update_ram_bar();
+
   // Clear existing rows (managed widgets destroyed on remove)
   auto children = list_box_.get_children();
   for (auto* child : children) {
@@ -265,11 +316,29 @@ void MainWindow::refresh_app_list() {
 
   auto apps = enumerate_graphical_apps(getpid());
 
+  long apps_rss = 0;
+  for (const auto& a : apps) apps_rss += a.rss_kb;
+
+  // System remainder: total used RAM minus RSS attributed to listed GUI apps.
+  long system_kb = info_.used_memory_kb - apps_rss;
+  if (system_kb < 0) system_kb = 0;
+
+  AppEntry system_entry;
+  system_entry.name = "LCOS System";
+  system_entry.pid = 0;
+  system_entry.rss_kb = system_kb;
+  system_entry.icon = load_lcos_system_icon();
+  system_entry.protected_app = true;
+  system_entry.protect_reason = "system";
+
+  auto* sys_row = Gtk::manage(new AppRow(system_entry));
+  // No force-close handler — protected / non-closable.
+  auto* sys_sep = Gtk::make_managed<Gtk::Separator>(Gtk::ORIENTATION_HORIZONTAL);
+  list_box_.pack_start(*sys_row, Gtk::PACK_SHRINK);
+  list_box_.pack_start(*sys_sep, Gtk::PACK_SHRINK);
+
   if (apps.empty()) {
-    auto* empty = Gtk::make_managed<Gtk::Label>("No graphical applications found.");
-    empty->set_margin_top(12);
-    empty->set_margin_bottom(12);
-    list_box_.pack_start(*empty, Gtk::PACK_SHRINK);
+    // Prefer always showing LCOS System only (no empty label).
   } else {
     for (const auto& a : apps) {
       auto* row = Gtk::manage(new AppRow(a));

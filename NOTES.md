@@ -1,5 +1,15 @@
 # lunduke-about NOTES
 
+## v0.2.2 (editor notes)
+
+- Window / Software menu icon: simple LCOS outline seal (`org.lunduke.AboutThisComputer`), not document / not full rings mark
+- Window background: `@theme_bg_color` (Paint-style theme), not hardcoded `#c0c0c0`
+- Full-width RAM bar with **"X RAM Used"** / **"X RAM Free"** overlays (omit free text when free is 0)
+- Top list row **"LCOS System"** (system remainder RAM; not Force-Closable); always shown
+- Empty list copy → **"No Running Software."** (UI prefers LCOS System alone when no GUI apps)
+- Software menu Name → **"About This Computer"**
+- Identity / Debian **0.2.2** / **0.2.2-1**
+
 ## v0.2.1 (label tweaks)
 
 - "LCOS version:" → "OS Version:"
