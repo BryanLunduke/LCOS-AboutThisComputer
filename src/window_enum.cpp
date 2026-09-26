@@ -316,13 +316,11 @@ std::vector<AppEntry> enumerate_graphical_apps(pid_t self_pid) {
     e.icon = pixbuf_from_net_wm_icon(dpy, w);
     e.xid = static_cast<unsigned long>(w);
 
+    // Never list About This Computer itself in the running-apps list.
+    if (pid == self_pid) continue;
+
     std::string reason;
-    if (pid == self_pid) {
-      e.protected_app = true;
-      e.protect_reason = "This application";
-      // Prefer a stable display name for ourselves
-      e.name = "About This Computer";
-    } else if (is_protected_name(name, wm_class, reason)) {
+    if (is_protected_name(name, wm_class, reason)) {
       e.protected_app = true;
       e.protect_reason = reason.empty() ? "Protected" : reason;
     }

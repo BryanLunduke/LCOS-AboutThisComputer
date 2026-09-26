@@ -1,7 +1,7 @@
 project(
   'lunduke-about',
   'cpp',
-  version: '0.1.0',
+  version: '0.2.0',
   license: 'GPL-3.0-or-later',
   meson_version: '>=0.56.0',
   default_options: [
@@ -37,7 +37,6 @@ lunduke_about_sources = files(
   'src/window_enum.cpp',
   'src/marquee.cpp',
   'src/app_row.cpp',
-  'src/memory_bar.cpp',
 )
 
 executable(

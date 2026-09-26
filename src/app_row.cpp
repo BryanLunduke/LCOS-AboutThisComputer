@@ -2,13 +2,9 @@
 #include "app_row.hpp"
 #include "system_info.hpp"
 
-#include <algorithm>
-#include <iostream>
-
 namespace lundukeabout {
 
-AppRow::AppRow(const AppEntry& entry, long max_rss_kb, long /*total_ram_kb*/)
-    : entry_(entry) {
+AppRow::AppRow(const AppEntry& entry) : entry_(entry) {
   set_visible_window(false);
   add(box_);
   box_.set_margin_start(6);
@@ -28,40 +24,17 @@ AppRow::AppRow(const AppEntry& entry, long max_rss_kb, long /*total_ram_kb*/)
 
   name_.set_text(entry.name);
   name_.set_halign(Gtk::ALIGN_START);
+  name_.set_xalign(0.0f);
   name_.set_ellipsize(Pango::ELLIPSIZE_END);
-  name_.set_max_width_chars(28);
-  name_.set_size_request(160, -1);
+  name_.set_hexpand(true);
   if (entry.protected_app) {
     name_.set_sensitive(false);
   }
-  box_.pack_start(name_, Gtk::PACK_SHRINK);
+  box_.pack_start(name_, Gtk::PACK_EXPAND_WIDGET);
 
-  // Bar length ∝ RSS vs largest in list (Mac partition width analogue).
-  // Fill uses RSS vs a capped "allocated" (VmSize is usually huge on Linux
-  // because of shared mappings, so we clamp allocated to <= 3x RSS).
-  double rel = 0.25;
-  if (max_rss_kb > 0)
-    rel = std::max(0.12, static_cast<double>(entry.rss_kb) / static_cast<double>(max_rss_kb));
-  long alloc_kb = entry.vsize_kb;
-  if (alloc_kb < entry.rss_kb) alloc_kb = entry.rss_kb;
-  if (entry.rss_kb > 0 && alloc_kb > entry.rss_kb * 3)
-    alloc_kb = entry.rss_kb * 3;
-  // Prefer a visible used portion: treat allocated as at least 1.15x RSS
-  if (entry.rss_kb > 0 && alloc_kb < static_cast<long>(entry.rss_kb * 1.15))
-    alloc_kb = static_cast<long>(entry.rss_kb * 1.15);
-  double used_frac = 1.0;
-  if (alloc_kb > 0)
-    used_frac = std::clamp(static_cast<double>(entry.rss_kb) /
-                               static_cast<double>(alloc_kb),
-                           0.15, 1.0);
-  bar_.set_relative_width(rel);
-  bar_.set_usage(used_frac);
-  bar_.set_size_request(160, 14);
-  box_.pack_start(bar_, Gtk::PACK_EXPAND_WIDGET);
-
-  mem_label_.set_text(format_memory_mb(entry.rss_kb));
+  mem_label_.set_text(format_memory_mb(entry.rss_kb) + " RAM Used");
   mem_label_.set_halign(Gtk::ALIGN_END);
-  mem_label_.set_width_chars(8);
+  mem_label_.set_xalign(1.0f);
   box_.pack_start(mem_label_, Gtk::PACK_SHRINK);
 
   add_events(Gdk::BUTTON_PRESS_MASK);

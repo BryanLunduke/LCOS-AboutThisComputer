@@ -28,10 +28,13 @@ window.lunduke-about * {
 .platinum-info {
   background-color: #c0c0c0;
   color: #000000;
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: bold;
 }
 .platinum-info label {
   color: #000000;
+  font-size: 13px;
+  font-weight: bold;
 }
 .platinum-list-frame {
   background-color: #ffffff;
@@ -69,7 +72,9 @@ scrollbar.platinum-scroll button {
 
 MainWindow::MainWindow() {
   set_title("About This Computer");
+  // v0.1 default layout size; keep as minimum while allowing resize larger.
   set_default_size(520, 480);
+  set_size_request(520, 480);
   set_border_width(0);
   set_resizable(true);
   get_style_context()->add_class("lunduke-about");
@@ -86,7 +91,7 @@ MainWindow::MainWindow() {
   root_.set_margin_end(12);
   root_.set_spacing(8);
 
-  // 1. Logo centered
+  // 1. Logo centered — full Bob mark (rings + banner)
   load_logo();
   logo_.set_halign(Gtk::ALIGN_CENTER);
   logo_.set_margin_top(4);
@@ -99,12 +104,20 @@ MainWindow::MainWindow() {
   marquee_.set_margin_bottom(2);
   root_.pack_start(marquee_, Gtk::PACK_SHRINK);
 
-  // 3. System info
-  auto* info_box = Gtk::make_managed<Gtk::Box>(Gtk::ORIENTATION_VERTICAL, 2);
-  info_box->get_style_context()->add_class("platinum-info");
-  info_box->set_margin_top(4);
-  info_box->set_margin_bottom(4);
-  info_box->set_halign(Gtk::ALIGN_START);
+  // 3. System info — two columns (left: version + memory; right: CPU + GPU)
+  auto* info_cols = Gtk::make_managed<Gtk::Box>(Gtk::ORIENTATION_HORIZONTAL, 24);
+  info_cols->get_style_context()->add_class("platinum-info");
+  info_cols->set_margin_top(4);
+  info_cols->set_margin_bottom(4);
+  info_cols->set_halign(Gtk::ALIGN_FILL);
+  info_cols->set_hexpand(true);
+
+  auto* left_col = Gtk::make_managed<Gtk::Box>(Gtk::ORIENTATION_VERTICAL, 2);
+  left_col->set_halign(Gtk::ALIGN_START);
+  left_col->set_hexpand(true);
+  auto* right_col = Gtk::make_managed<Gtk::Box>(Gtk::ORIENTATION_VERTICAL, 2);
+  right_col->set_halign(Gtk::ALIGN_START);
+  right_col->set_hexpand(true);
 
   os_label_.set_text("LCOS version:  " + info_.os_pretty);
   os_label_.set_halign(Gtk::ALIGN_START);
@@ -113,17 +126,19 @@ MainWindow::MainWindow() {
   cpu_label_.set_text("System CPU:  " + info_.cpu_model);
   cpu_label_.set_halign(Gtk::ALIGN_START);
   cpu_label_.set_ellipsize(Pango::ELLIPSIZE_END);
-  cpu_label_.set_max_width_chars(56);
+  cpu_label_.set_max_width_chars(36);
   gpu_label_.set_text("GPU:  " + info_.gpu);
   gpu_label_.set_halign(Gtk::ALIGN_START);
   gpu_label_.set_ellipsize(Pango::ELLIPSIZE_END);
-  gpu_label_.set_max_width_chars(56);
+  gpu_label_.set_max_width_chars(36);
 
-  info_box->pack_start(os_label_, Gtk::PACK_SHRINK);
-  info_box->pack_start(mem_label_, Gtk::PACK_SHRINK);
-  info_box->pack_start(cpu_label_, Gtk::PACK_SHRINK);
-  info_box->pack_start(gpu_label_, Gtk::PACK_SHRINK);
-  root_.pack_start(*info_box, Gtk::PACK_SHRINK);
+  left_col->pack_start(os_label_, Gtk::PACK_SHRINK);
+  left_col->pack_start(mem_label_, Gtk::PACK_SHRINK);
+  right_col->pack_start(cpu_label_, Gtk::PACK_SHRINK);
+  right_col->pack_start(gpu_label_, Gtk::PACK_SHRINK);
+  info_cols->pack_start(*left_col, Gtk::PACK_EXPAND_WIDGET);
+  info_cols->pack_start(*right_col, Gtk::PACK_EXPAND_WIDGET);
+  root_.pack_start(*info_cols, Gtk::PACK_SHRINK);
 
   // 4. Scrollable app list in beveled frame
   auto* frame = Gtk::make_managed<Gtk::Frame>();
@@ -178,12 +193,12 @@ std::string MainWindow::find_data_file(const std::string& relative) const {
 }
 
 void MainWindow::load_logo() {
-  // Prefer tree/shipped black logo; fallback to system pixmap only as last resort
-  // and only if it is the black variant (we intentionally skip old color bitmap).
+  // Prefer baked full-mark PNGs (rings + banner). Skip SVG without librsvg.
+  // Prefer larger sources first so downscale keeps ring detail.
   const char* paths[] = {
-      "pixmaps/lcos-logo-black-128.png",
-      "pixmaps/lcos-logo-black-256.png",
       "pixmaps/lcos-logo-black-preview.png",
+      "pixmaps/lcos-logo-black-256.png",
+      "pixmaps/lcos-logo-black-128.png",
       "pixmaps/lcos-logo-black.svg",
   };
 
@@ -191,12 +206,12 @@ void MainWindow::load_logo() {
   for (const char* rel : paths) {
     std::string path = find_data_file(rel);
     try {
-      // GdkPixbuf loads PNG reliably; SVG needs librsvg loader which may be absent.
       if (std::string(rel).size() >= 4 &&
           std::string(rel).substr(std::string(rel).size() - 4) == ".svg") {
-        continue;  // skip SVG without librsvg; we ship baked PNGs
+        continue;
       }
-      pb = Gdk::Pixbuf::create_from_file(path, 96, 96, true);
+      // Slightly larger than v0.1 so rings/arcs stay readable
+      pb = Gdk::Pixbuf::create_from_file(path, 120, 120, true);
       if (pb) break;
     } catch (...) {
       // try next
@@ -204,10 +219,9 @@ void MainWindow::load_logo() {
   }
 
   if (!pb) {
-    // Last-ditch: try absolute known branding preview
     try {
       pb = Gdk::Pixbuf::create_from_file(
-          "/workspace/lcos-branding/lcos-logo-black-preview.png", 96, 96, true);
+          "/workspace/artifacts/lcos-logo-black-preview.png", 120, 120, true);
     } catch (...) {
     }
   }
@@ -250,8 +264,6 @@ void MainWindow::refresh_app_list() {
   }
 
   auto apps = enumerate_graphical_apps(getpid());
-  long max_rss = 1;
-  for (const auto& a : apps) max_rss = std::max(max_rss, a.rss_kb);
 
   if (apps.empty()) {
     auto* empty = Gtk::make_managed<Gtk::Label>("No graphical applications found.");
@@ -260,10 +272,9 @@ void MainWindow::refresh_app_list() {
     list_box_.pack_start(*empty, Gtk::PACK_SHRINK);
   } else {
     for (const auto& a : apps) {
-      auto* row = Gtk::manage(new AppRow(a, max_rss, info_.total_memory_kb));
+      auto* row = Gtk::manage(new AppRow(a));
       row->set_force_close_handler(
           [this](const AppEntry& e) { on_force_close(e); });
-      // Alternating subtle separator
       auto* sep = Gtk::make_managed<Gtk::Separator>(Gtk::ORIENTATION_HORIZONTAL);
       list_box_.pack_start(*row, Gtk::PACK_SHRINK);
       list_box_.pack_start(*sep, Gtk::PACK_SHRINK);
