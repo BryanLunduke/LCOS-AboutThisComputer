@@ -323,6 +323,17 @@ void MainWindow::refresh_app_list() {
   long system_kb = info_.used_memory_kb - apps_rss;
   if (system_kb < 0) system_kb = 0;
 
+  // GUI apps first …
+  for (const auto& a : apps) {
+    auto* row = Gtk::manage(new AppRow(a));
+    row->set_force_close_handler(
+        [this](const AppEntry& e) { on_force_close(e); });
+    auto* sep = Gtk::make_managed<Gtk::Separator>(Gtk::ORIENTATION_HORIZONTAL);
+    list_box_.pack_start(*row, Gtk::PACK_SHRINK);
+    list_box_.pack_start(*sep, Gtk::PACK_SHRINK);
+  }
+
+  // … then LCOS System always at the bottom (protected / non-closable).
   AppEntry system_entry;
   system_entry.name = "LCOS System";
   system_entry.pid = 0;
@@ -333,22 +344,8 @@ void MainWindow::refresh_app_list() {
 
   auto* sys_row = Gtk::manage(new AppRow(system_entry));
   // No force-close handler — protected / non-closable.
-  auto* sys_sep = Gtk::make_managed<Gtk::Separator>(Gtk::ORIENTATION_HORIZONTAL);
   list_box_.pack_start(*sys_row, Gtk::PACK_SHRINK);
-  list_box_.pack_start(*sys_sep, Gtk::PACK_SHRINK);
 
-  if (apps.empty()) {
-    // Prefer always showing LCOS System only (no empty label).
-  } else {
-    for (const auto& a : apps) {
-      auto* row = Gtk::manage(new AppRow(a));
-      row->set_force_close_handler(
-          [this](const AppEntry& e) { on_force_close(e); });
-      auto* sep = Gtk::make_managed<Gtk::Separator>(Gtk::ORIENTATION_HORIZONTAL);
-      list_box_.pack_start(*row, Gtk::PACK_SHRINK);
-      list_box_.pack_start(*sep, Gtk::PACK_SHRINK);
-    }
-  }
   list_box_.show_all();
 }
 
