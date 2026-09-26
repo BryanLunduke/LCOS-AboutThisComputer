@@ -3,6 +3,8 @@
 Classic Mac OS 9–inspired **About This Computer** window for LCOS.
 Replaces Software-menu **About your Computer** (`xfce4-about.desktop` → `lunduke-about`) in LCOS live-07.
 
+**v0.2.1** — Label tweaks: `OS Version:` / `CPU:` (was `LCOS version:` / `System CPU:`).
+
 **v0.2** — UI polish: full LCOS mark (rings), two-column system stats, left-aligned
 app names, `MB RAM Used` text (no bars), hide self from the app list, resizable
 with a 520×480 minimum.
@@ -50,9 +52,9 @@ Ships Bob’s **full** black LCOS mark (`data/pixmaps/lcos-logo-black.*`) — ci
 rings/arcs, banner box, and wordmark — copied from the canonical branding assets.
 Does **not** use the old color `/usr/share/pixmaps/lcos-logo.png` or the wordmark-only bake.
 
-## Features (v0.2)
+## Features (v0.2.1)
 
-- LCOS version from `/etc/os-release` (falls back to LCOS live recipe sample if host isn’t LCOS)
+- OS Version from `/etc/os-release` (falls back to LCOS live recipe sample if host isn’t LCOS)
 - Total RAM, CPU model (`/proc/cpuinfo`), GPU (best-effort `lspci`) in a two-column stats row
 - Scrolling “Supporters of LCOS” marquee
 - List of graphical toplevel apps (X11 `_NET_CLIENT_LIST` / WM_STATE), RSS as `N MB RAM Used`
@@ -65,7 +67,7 @@ Does **not** use the old color `/usr/share/pixmaps/lcos-logo.png` or the wordmar
 
 ```bash
 ./packaging/build-deb.sh
-# → packaging/debs/lunduke-about_0.2-1_amd64.deb
+# → packaging/debs/lunduke-about_0.2.1-1_amd64.deb
 ```
 
 Installs `/usr/bin/lunduke-about`, data under `/usr/share/lunduke-about/`,

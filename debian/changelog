@@ -1,0 +1,13 @@
+lunduke-about (0.2.1-1) unstable; urgency=medium
+
+  * Labels: "LCOS version:" → "OS Version:"; "System CPU:" → "CPU:"
+  * Identity bump to 0.2.1
+
+ -- Phil <phil@brushpad.local>  Sat, 26 Sep 2026 14:05:00 -0500
+
+lunduke-about (0.2-1) unstable; urgency=medium
+
+  * Initial Debian packaging for lunduke-about 0.2
+  * UI polish: full LCOS mark, two-column stats, no RAM bars
+
+ -- Phil <phil@brushpad.local>  Sat, 26 Sep 2026 13:58:00 -0500

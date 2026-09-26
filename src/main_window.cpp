@@ -119,11 +119,11 @@ MainWindow::MainWindow() {
   right_col->set_halign(Gtk::ALIGN_START);
   right_col->set_hexpand(true);
 
-  os_label_.set_text("LCOS version:  " + info_.os_pretty);
+  os_label_.set_text("OS Version:  " + info_.os_pretty);
   os_label_.set_halign(Gtk::ALIGN_START);
   mem_label_.set_text("Built-in Memory:  " + info_.total_memory);
   mem_label_.set_halign(Gtk::ALIGN_START);
-  cpu_label_.set_text("System CPU:  " + info_.cpu_model);
+  cpu_label_.set_text("CPU:  " + info_.cpu_model);
   cpu_label_.set_halign(Gtk::ALIGN_START);
   cpu_label_.set_ellipsize(Pango::ELLIPSIZE_END);
   cpu_label_.set_max_width_chars(36);
