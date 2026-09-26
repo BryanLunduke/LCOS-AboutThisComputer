@@ -1,7 +1,7 @@
 # About This Computer (`lunduke-about`)
 
 Classic Mac OS 9–inspired **About This Computer** window for LCOS.
-Replaces `xfce4-about` later (not wired yet — visual review first).
+Replaces Software-menu **About your Computer** (`xfce4-about.desktop` → `lunduke-about`) in LCOS live-07.
 
 **v0.2** — UI polish: full LCOS mark (rings), two-column system stats, left-aligned
 app names, `MB RAM Used` text (no bars), hide self from the app list, resizable
@@ -59,6 +59,17 @@ Does **not** use the old color `/usr/share/pixmaps/lcos-logo.png` or the wordmar
 - About This Computer itself is omitted from the list
 - Right-click → **Force Close** (confirm → SIGKILL); skips session-critical bits
 - Window resizable; minimum size 520×480 (v0.1 default layout)
+
+
+## Package (.deb)
+
+```bash
+./packaging/build-deb.sh
+# → packaging/debs/lunduke-about_0.2-1_amd64.deb
+```
+
+Installs `/usr/bin/lunduke-about`, data under `/usr/share/lunduke-about/`,
+desktop file, and hicolor icons.
 
 ## License
 

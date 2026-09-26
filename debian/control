@@ -1,0 +1,14 @@
+Source: lunduke-about
+Section: utils
+Priority: optional
+Maintainer: LCOS <lcos@lunduke.com>
+Homepage: https://lunduke.com
+Standards-Version: 4.6.2
+
+Package: lunduke-about
+Architecture: amd64
+Depends: ${shlibs:Depends}, ${misc:Depends}, desktop-file-utils, gtk-update-icon-cache
+Description: About This Computer for LCOS (Mac OS 9 style)
+ Classic Mac OS 9–inspired About This Computer window for the Lunduke
+ Computer Operating System. Shows LCOS version, RAM, CPU, GPU, a
+ supporters marquee, and running graphical apps with Force Close.
