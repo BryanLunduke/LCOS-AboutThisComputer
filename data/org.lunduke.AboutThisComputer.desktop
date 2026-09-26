@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=About your Computer
+Comment=System information and running applications (Mac OS 9 style)
+Exec=lunduke-about
+Icon=org.lunduke.AboutThisComputer
+Terminal=false
+Categories=System;Monitor;
+StartupNotify=true

@@ -1,0 +1,3 @@
+# Placeholder supporter names for v0.1 — replace without rebuild when loaded from this file.
+# One line, comma-separated (or one name per line). Lines starting with # are ignored.
+Alice, Bob, Carol, Dave, Eve, Frank
