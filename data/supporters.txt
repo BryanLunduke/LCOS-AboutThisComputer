@@ -1,3 +1,3 @@
-# Placeholder for About This Computer marquee. Replace without rebuild when loaded from this file.
-# One line, comma-separated (or one name per line). Lines starting with # are ignored.
+# Placeholder for About This Computer Supporters block. Replace without rebuild when loaded from this file.
+# Comma-separated or one name per line. Lines starting with # are ignored.
 [Your Name Here]

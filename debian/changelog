@@ -1,3 +1,11 @@
+lunduke-about (0.2.5-1) unstable; urgency=medium
+
+  * Remove Supporters marquee/ticker
+  * Logo left; static right-justified Supporters of LCOS block (title, blank, name)
+  * Same font as OS Version / stats labels; data/supporters.txt still the name source
+
+ -- Phil <phil@brushpad.local>  Sat, 26 Sep 2026 15:30:00 -0500
+
 lunduke-about (0.2.4-1) unstable; urgency=medium
 
   * Supporters marquee placeholder: "[Your Name Here]"

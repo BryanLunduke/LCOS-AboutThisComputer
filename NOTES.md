@@ -1,5 +1,13 @@
 # lunduke-about NOTES
 
+## v0.2.5
+
+- Remove Supporters marquee/ticker entirely
+- LCOS logo on the **left**; static **Supporters of LCOS** text block on the right (right-justified): title, blank line, `[Your Name Here]`
+- Same font as OS Version / stats (`.about-info`); `data/supporters.txt` remains the name source
+- Identity / Debian **0.2.5** / **0.2.5-1**
+
+
 ## v0.2.4
 
 - Supporters marquee → **`[Your Name Here]`** (no Alice/Bob list)

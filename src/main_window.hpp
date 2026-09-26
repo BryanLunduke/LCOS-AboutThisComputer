@@ -2,7 +2,6 @@
 #pragma once
 
 #include "system_info.hpp"
-#include "marquee.hpp"
 #include "memory_bar.hpp"
 #include "window_enum.hpp"
 
@@ -29,7 +28,12 @@ private:
   SystemInfo info_;
   Gtk::Box root_{Gtk::ORIENTATION_VERTICAL, 0};
   Gtk::Image logo_;
-  Marquee marquee_;
+  // Top-right Supporters block (static for now). Keep as a dedicated box so a
+  // future upward movie-credits scroll can replace the labels with a viewport.
+  Gtk::Box supporters_box_{Gtk::ORIENTATION_VERTICAL, 0};
+  Gtk::Label supporters_title_;
+  Gtk::Label supporters_blank_;
+  Gtk::Label supporters_names_;
   Gtk::Label os_label_;
   Gtk::Label mem_label_;
   Gtk::Label cpu_label_;

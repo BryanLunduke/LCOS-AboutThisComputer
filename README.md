@@ -3,6 +3,8 @@
 Classic Mac OS 9–inspired **About This Computer** window for LCOS.
 Replaces Software-menu **About This Computer** (`xfce4-about.desktop` → `lunduke-about`) in LCOS live-07.
 
+**v0.2.5** — Logo left; static right-justified Supporters of LCOS block (no marquee).
+
 **v0.2.4** — Supporters marquee placeholder `[Your Name Here]`.
 
 **v0.2.3** — LCOS System row at bottom of application list.
@@ -48,11 +50,12 @@ Data files (`supporters.txt`, logo pixmaps) are resolved from:
 1. Install prefix `share/lunduke-about/`
 2. Source-tree `data/` (so running from the builddir works without install)
 
-### Supporters marquee
+### Supporters of LCOS
 
-Edit `data/supporters.txt` (comma-separated or one name per line; `#` comments).
+Top-right static text block (right-justified): title, blank line, then names from
+`data/supporters.txt` (comma-separated or one name per line; `#` comments).
 Loaded at startup — no rebuild needed when running against the source `data/` path
-or after reinstall.
+or after reinstall. Layout leaves room for a future upward movie-credits scroll.
 
 ### Logo
 
@@ -63,12 +66,12 @@ Window / Software-menu icon uses the **simple LCOS outline** seal
 (`org.lunduke.AboutThisComputer` hicolor PNGs), matching `lcos32.png` / `lcos-logo.png`
 — not the full rings mark and not a generic document icon.
 
-## Features (v0.2.4)
+## Features (v0.2.5)
 
 - OS Version from `/etc/os-release` (falls back to LCOS live recipe sample if host isn’t LCOS)
 - Total RAM, CPU model (`/proc/cpuinfo`), GPU (best-effort `lspci`) in a two-column stats row
 - Full-width Mac OS 9–style RAM bar (`X RAM Used` / `X RAM Free` overlays)
-- Scrolling “Supporters of LCOS” marquee
+- Right-justified “Supporters of LCOS” text block (logo left)
 - Graphical apps, then **LCOS System** at bottom (system RAM remainder; not Force-Closable)
 - App RSS as `N MB RAM Used`; empty-list copy: `No Running Software.`
 - About This Computer itself is omitted from the list
@@ -80,7 +83,7 @@ Window / Software-menu icon uses the **simple LCOS outline** seal
 
 ```bash
 ./packaging/build-deb.sh
-# → packaging/debs/lunduke-about_0.2.4-1_amd64.deb
+# → packaging/debs/lunduke-about_0.2.5-1_amd64.deb
 ```
 
 Installs `/usr/bin/lunduke-about`, data under `/usr/share/lunduke-about/`,

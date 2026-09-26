@@ -98,20 +98,47 @@ MainWindow::MainWindow() {
   root_.set_margin_end(12);
   root_.set_spacing(8);
 
-  // 1. Logo centered — full Bob mark (rings + banner)
+  // 1. Header: LCOS logo left + Supporters block right (right-justified).
+  //    supporters_box_ is the hook point for a future upward credits scroll.
+  auto* header = Gtk::make_managed<Gtk::Box>(Gtk::ORIENTATION_HORIZONTAL, 16);
+  header->get_style_context()->add_class("about-header");
+  header->set_halign(Gtk::ALIGN_FILL);
+  header->set_hexpand(true);
+  header->set_margin_top(2);
+  header->set_margin_bottom(2);
+
   load_logo();
-  logo_.set_halign(Gtk::ALIGN_CENTER);
+  logo_.set_halign(Gtk::ALIGN_START);
+  logo_.set_valign(Gtk::ALIGN_START);
   logo_.set_margin_top(4);
   logo_.set_margin_bottom(2);
-  root_.pack_start(logo_, Gtk::PACK_SHRINK);
 
-  // 2. Marquee
+  supporters_box_.get_style_context()->add_class("about-info");
+  supporters_box_.set_halign(Gtk::ALIGN_END);
+  supporters_box_.set_valign(Gtk::ALIGN_CENTER);
+  supporters_box_.set_hexpand(true);
+  supporters_box_.set_spacing(0);
+
+  supporters_title_.set_text("Supporters of LCOS");
+  supporters_title_.set_halign(Gtk::ALIGN_END);
+  supporters_title_.set_justify(Gtk::JUSTIFY_RIGHT);
+  // Blank line between title and name (nbsp so the row does not collapse).
+  supporters_blank_.set_text(u8"\u00a0");
+  supporters_blank_.set_halign(Gtk::ALIGN_END);
+  supporters_names_.set_halign(Gtk::ALIGN_END);
+  supporters_names_.set_justify(Gtk::JUSTIFY_RIGHT);
+
+  supporters_box_.pack_start(supporters_title_, Gtk::PACK_SHRINK);
+  supporters_box_.pack_start(supporters_blank_, Gtk::PACK_SHRINK);
+  supporters_box_.pack_start(supporters_names_, Gtk::PACK_SHRINK);
+
+  header->pack_start(logo_, Gtk::PACK_SHRINK);
+  header->pack_start(supporters_box_, Gtk::PACK_EXPAND_WIDGET);
+  root_.pack_start(*header, Gtk::PACK_SHRINK);
+
   load_supporters();
-  marquee_.set_margin_top(2);
-  marquee_.set_margin_bottom(2);
-  root_.pack_start(marquee_, Gtk::PACK_SHRINK);
 
-  // 3. System info — two columns (left: version + memory; right: CPU + GPU)
+  // 2. System info — two columns (left: version + memory; right: CPU + GPU)
   auto* info_cols = Gtk::make_managed<Gtk::Box>(Gtk::ORIENTATION_HORIZONTAL, 24);
   info_cols->get_style_context()->add_class("about-info");
   info_cols->set_margin_top(4);
@@ -147,13 +174,13 @@ MainWindow::MainWindow() {
   info_cols->pack_start(*right_col, Gtk::PACK_EXPAND_WIDGET);
   root_.pack_start(*info_cols, Gtk::PACK_SHRINK);
 
-  // 4. Full-width RAM Used / Free bar (between stats and app list)
+  // 3. Full-width RAM Used / Free bar (between stats and app list)
   ram_bar_.set_margin_top(2);
   ram_bar_.set_margin_bottom(2);
   root_.pack_start(ram_bar_, Gtk::PACK_SHRINK);
   update_ram_bar();
 
-  // 5. Scrollable app list in beveled frame
+  // 4. Scrollable app list in beveled frame
   auto* frame = Gtk::make_managed<Gtk::Frame>();
   frame->set_shadow_type(Gtk::SHADOW_IN);
   frame->get_style_context()->add_class("platinum-list-frame");
@@ -296,7 +323,7 @@ void MainWindow::load_supporters() {
   if (names.empty()) {
     names = "[Your Name Here]";
   }
-  marquee_.set_text("Supporters of LCOS:  " + names + "    ");
+  supporters_names_.set_text(names);
 }
 
 void MainWindow::update_ram_bar() {
