@@ -1,5 +1,10 @@
 # lunduke-about NOTES
 
+## v0.2.4
+
+- Supporters marquee → **`[Your Name Here]`** (no Alice/Bob list)
+- Identity / Debian **0.2.4** / **0.2.4-1**
+
 ## v0.2.3
 
 - Move **LCOS System** row to the **bottom** of the application list (still protected)

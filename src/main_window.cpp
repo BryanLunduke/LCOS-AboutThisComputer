@@ -294,7 +294,7 @@ void MainWindow::load_supporters() {
     }
   }
   if (names.empty()) {
-    names = "Alice, Bob, Carol";  // obvious placeholders
+    names = "[Your Name Here]";
   }
   marquee_.set_text("Supporters of LCOS:  " + names + "    ");
 }
