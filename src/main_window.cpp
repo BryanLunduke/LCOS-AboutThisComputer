@@ -305,7 +305,7 @@ Glib::RefPtr<Gdk::Pixbuf> MainWindow::load_lcos_system_icon() const {
 
 void MainWindow::load_supporters() {
   // Preserve blank lines from supporters.txt so the right block shows
-  // title / blank / names with intentional gaps (e.g. Fuzzy, blank, placeholder).
+  // title / blank / names with intentional gaps.
   std::string path = find_data_file("supporters.txt");
   std::ifstream in(path);
   std::string names;
@@ -324,7 +324,7 @@ void MainWindow::load_supporters() {
     }
   }
   if (names.empty()) {
-    names = "[Your Name Here]";
+    names = "\"Fuzzy\", Steven P.";
   }
   supporters_names_.set_text(names);
 }

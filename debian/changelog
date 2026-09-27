@@ -1,3 +1,11 @@
+lunduke-about (0.2.8-1) unstable; urgency=medium
+
+  * Supporters block: remove "[Your Name Here]" placeholder line; keep
+    title, blank spacing, and "Fuzzy", Steven P.
+  * RAM accounting, Force Close, list, window size, icons unchanged.
+
+ -- Phil <phil@brushpad.local>  Sun, 27 Sep 2026 16:36:00 -0500
+
 lunduke-about (0.2.7-1) unstable; urgency=medium
 
   * RAM accounting: per-app rows use RssAnon only (private heap from

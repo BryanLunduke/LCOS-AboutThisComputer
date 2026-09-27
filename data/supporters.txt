@@ -2,4 +2,3 @@
 # Lines starting with # are ignored. Loaded at runtime from this file.
 "Fuzzy", Steven P.
 
-[Your Name Here]
