@@ -1,5 +1,13 @@
 # lunduke-about NOTES
 
+## v0.2.7
+
+- RAM accounting: GUI app rows report **RssAnon only** (private heap)
+- **LCOS System** = physical used (MemTotal − MemAvailable) − Σ listed-app RssAnon
+- RssShmem / RssFile / shared library pages stay in LCOS System (once)
+- Label still `N MB RAM Used`; Force Close / bar / Supporters / size unchanged
+- Identity / Debian **0.2.7** / **0.2.7-1**
+
 ## v0.2.6
 
 - Shorter default/minimum window (~2½ application rows visible in the list)

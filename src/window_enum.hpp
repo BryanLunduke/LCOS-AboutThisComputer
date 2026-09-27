@@ -11,7 +11,7 @@ namespace lundukeabout {
 struct AppEntry {
   std::string name;
   pid_t pid = 0;
-  long rss_kb = 0;      // VmRSS
+  long rss_kb = 0;      // RssAnon (private heap; RssShmem left to LCOS System)
   long vsize_kb = 0;    // VmSize (approx "allocated")
   Glib::RefPtr<Gdk::Pixbuf> icon;
   bool protected_app = false;  // cannot force-close

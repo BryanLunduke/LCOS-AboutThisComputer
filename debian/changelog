@@ -1,3 +1,13 @@
+lunduke-about (0.2.7-1) unstable; urgency=medium
+
+  * RAM accounting: per-app rows use RssAnon only (private heap from
+    /proc/<pid>/status); LCOS System = physical used (MemTotal - MemAvailable)
+    minus sum of listed-app RssAnon (RssFile/shared + RssShmem stay in System
+    once, no double-count across GTK apps). Negative residual clamped to 0.
+  * Force Close, list, RAM bar, Supporters, window size, icons unchanged.
+
+ -- Phil <phil@brushpad.local>  Sun, 27 Sep 2026 16:30:00 -0500
+
 lunduke-about (0.2.6-1) unstable; urgency=medium
 
   * Shorter default/minimum window height (~2½ app rows visible)

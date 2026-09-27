@@ -3,6 +3,8 @@
 Classic Mac OS 9–inspired **About This Computer** window for LCOS.
 Replaces Software-menu **About This Computer** (`xfce4-about.desktop` → `lunduke-about`) in LCOS live-07.
 
+**v0.2.7** — RAM accounting: app rows RssAnon only; LCOS System = physical used − Σ RssAnon (RssShmem/RssFile in System).
+
 **v0.2.6** — Shorter window (~2½ app rows); Supporters: Fuzzy + [Your Name Here]; logo left / Supporters right.
 
 **v0.2.4** — Supporters marquee placeholder `[Your Name Here]`.
@@ -66,14 +68,14 @@ Window / Software-menu icon uses the **simple LCOS outline** seal
 (`org.lunduke.AboutThisComputer` hicolor PNGs), matching `lcos32.png` / `lcos-logo.png`
 — not the full rings mark and not a generic document icon.
 
-## Features (v0.2.6)
+## Features (v0.2.7)
 
 - OS Version from `/etc/os-release` (falls back to LCOS live recipe sample if host isn’t LCOS)
 - Total RAM, CPU model (`/proc/cpuinfo`), GPU (best-effort `lspci`) in a two-column stats row
 - Full-width Mac OS 9–style RAM bar (`X RAM Used` / `X RAM Free` overlays)
 - Right-justified “Supporters of LCOS” text block (logo left)
 - Graphical apps, then **LCOS System** at bottom (system RAM remainder; not Force-Closable)
-- App RSS as `N MB RAM Used`; empty-list copy: `No Running Software.`
+- App private RAM (RssAnon) as `N MB RAM Used`; LCOS System holds residual physical used (shared/RssFile/RssShmem once); empty-list copy: `No Running Software.`
 - About This Computer itself is omitted from the list
 - Right-click → **Force Close** (confirm → SIGKILL); protected rows have no menu action
 - Theme window background (`@theme_bg_color`); white app-list frame
@@ -83,7 +85,7 @@ Window / Software-menu icon uses the **simple LCOS outline** seal
 
 ```bash
 ./packaging/build-deb.sh
-# → packaging/debs/lunduke-about_0.2.6-1_amd64.deb
+# → packaging/debs/lunduke-about_0.2.7-1_amd64.deb
 ```
 
 Installs `/usr/bin/lunduke-about`, data under `/usr/share/lunduke-about/`,

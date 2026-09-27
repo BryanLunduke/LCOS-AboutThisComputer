@@ -23,7 +23,7 @@ long read_proc_kb(pid_t pid, const char* key) {
   const std::string prefix = std::string(key);
   while (std::getline(in, line)) {
     if (line.compare(0, prefix.size(), prefix) != 0) continue;
-    // "VmRSS:\t  12345 kB"
+    // "RssAnon:\t  12345 kB" (also VmRSS:/VmSize:/RssShmem:)
     auto pos = line.find_first_of("0123456789");
     if (pos == std::string::npos) return 0;
     try {
@@ -310,7 +310,7 @@ std::vector<AppEntry> enumerate_graphical_apps(pid_t self_pid) {
     AppEntry e;
     e.name = name;
     e.pid = pid;
-    e.rss_kb = read_proc_kb(pid, "VmRSS:");
+    e.rss_kb = read_proc_kb(pid, "RssAnon:");
     e.vsize_kb = read_proc_kb(pid, "VmSize:");
     if (e.vsize_kb < e.rss_kb) e.vsize_kb = e.rss_kb;
     e.icon = pixbuf_from_net_wm_icon(dpy, w);

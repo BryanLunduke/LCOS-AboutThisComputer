@@ -346,10 +346,13 @@ void MainWindow::refresh_app_list() {
 
   auto apps = enumerate_graphical_apps(getpid());
 
+  // Per-app rows report RssAnon only (private heap). Sum those, then residual
+  // physical used (MemTotal - MemAvailable) minus that sum is LCOS System —
+  // so RssFile / shared library pages and RssShmem are counted once in System,
+  // not double-counted on every GTK app. Clamp if residual would go negative.
   long apps_rss = 0;
   for (const auto& a : apps) apps_rss += a.rss_kb;
 
-  // System remainder: total used RAM minus RSS attributed to listed GUI apps.
   long system_kb = info_.used_memory_kb - apps_rss;
   if (system_kb < 0) system_kb = 0;
 
