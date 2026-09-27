@@ -1,3 +1,5 @@
-# Placeholder for About This Computer Supporters block. Replace without rebuild when loaded from this file.
-# Comma-separated or one name per line. Lines starting with # are ignored.
+# About This Computer Supporters block (one name per line; blank lines kept).
+# Lines starting with # are ignored. Loaded at runtime from this file.
+"Fuzzy", Steven P.
+
 [Your Name Here]

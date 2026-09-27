@@ -1,5 +1,12 @@
 # lunduke-about NOTES
 
+## v0.2.6
+
+- Shorter default/minimum window (~2½ application rows visible in the list)
+- Supporters text: title, blank, `"Fuzzy", Steven P.`, blank, `[Your Name Here]`
+- `data/supporters.txt` blank lines preserved (multiline names label)
+- Identity / Debian **0.2.6** / **0.2.6-1**
+
 ## v0.2.5
 
 - Remove Supporters marquee/ticker entirely

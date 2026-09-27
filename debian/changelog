@@ -1,3 +1,11 @@
+lunduke-about (0.2.6-1) unstable; urgency=medium
+
+  * Shorter default/minimum window height (~2½ app rows visible)
+  * Supporters block: "Fuzzy", Steven P. + blank + [Your Name Here]
+  * Preserve blank lines from data/supporters.txt (multiline, right-justified)
+
+ -- Phil <phil@brushpad.local>  Sun, 27 Sep 2026 12:35:00 -0700
+
 lunduke-about (0.2.5-1) unstable; urgency=medium
 
   * Remove Supporters marquee/ticker

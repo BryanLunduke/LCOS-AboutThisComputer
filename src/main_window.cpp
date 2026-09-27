@@ -79,9 +79,9 @@ MainWindow::MainWindow() {
   set_title("About This Computer");
   // Reinforce default icon for WMs that ignore gtk_window_set_default_icon_name.
   set_icon_name(APP_ID);
-  // v0.1 default layout size; keep as minimum while allowing resize larger.
-  set_default_size(520, 480);
-  set_size_request(520, 480);
+  // v0.2.6: shorter default/min so ~2½ app rows show (not a tall empty list).
+  set_default_size(520, 360);
+  set_size_request(520, 360);
   set_border_width(0);
   set_resizable(true);
   get_style_context()->add_class("lunduke-about");
@@ -189,7 +189,7 @@ MainWindow::MainWindow() {
 
   list_scroll_.set_policy(Gtk::POLICY_NEVER, Gtk::POLICY_AUTOMATIC);
   list_scroll_.get_style_context()->add_class("platinum-scroll");
-  list_scroll_.set_min_content_height(200);
+  list_scroll_.set_min_content_height(100);
 
   list_box_.get_style_context()->add_class("platinum-list");
   list_box_.set_homogeneous(false);
@@ -304,20 +304,23 @@ Glib::RefPtr<Gdk::Pixbuf> MainWindow::load_lcos_system_icon() const {
 }
 
 void MainWindow::load_supporters() {
+  // Preserve blank lines from supporters.txt so the right block shows
+  // title / blank / names with intentional gaps (e.g. Fuzzy, blank, placeholder).
   std::string path = find_data_file("supporters.txt");
   std::ifstream in(path);
   std::string names;
   if (in) {
     std::string line;
+    bool started = false;
     while (std::getline(in, line)) {
-      if (line.empty() || line[0] == '#') continue;
-      if (!names.empty()) names += ", ";
-      // Allow either comma-separated one-liners or one-per-line
-      if (line.find(',') != std::string::npos) {
-        names += line;
+      if (!line.empty() && line[0] == '#') continue;
+      if (!started) {
+        if (line.empty()) continue;  // skip leading blanks after comments
+        started = true;
       } else {
-        names += line;
+        names += '\n';
       }
+      names += line;
     }
   }
   if (names.empty()) {

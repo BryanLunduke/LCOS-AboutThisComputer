@@ -3,7 +3,7 @@
 Classic Mac OS 9–inspired **About This Computer** window for LCOS.
 Replaces Software-menu **About This Computer** (`xfce4-about.desktop` → `lunduke-about`) in LCOS live-07.
 
-**v0.2.5** — Logo left; static right-justified Supporters of LCOS block (no marquee).
+**v0.2.6** — Shorter window (~2½ app rows); Supporters: Fuzzy + [Your Name Here]; logo left / Supporters right.
 
 **v0.2.4** — Supporters marquee placeholder `[Your Name Here]`.
 
@@ -17,7 +17,7 @@ full-width RAM Used/Free bar; LCOS System row; Software menu Name
 
 **v0.2** — UI polish: full LCOS mark (rings), two-column system stats, left-aligned
 app names, `MB RAM Used` text (no per-row bars), hide self from the app list, resizable
-with a 520×480 minimum.
+with a 520×360 minimum.
 
 ## Requirements
 
@@ -66,7 +66,7 @@ Window / Software-menu icon uses the **simple LCOS outline** seal
 (`org.lunduke.AboutThisComputer` hicolor PNGs), matching `lcos32.png` / `lcos-logo.png`
 — not the full rings mark and not a generic document icon.
 
-## Features (v0.2.5)
+## Features (v0.2.6)
 
 - OS Version from `/etc/os-release` (falls back to LCOS live recipe sample if host isn’t LCOS)
 - Total RAM, CPU model (`/proc/cpuinfo`), GPU (best-effort `lspci`) in a two-column stats row
@@ -77,13 +77,13 @@ Window / Software-menu icon uses the **simple LCOS outline** seal
 - About This Computer itself is omitted from the list
 - Right-click → **Force Close** (confirm → SIGKILL); protected rows have no menu action
 - Theme window background (`@theme_bg_color`); white app-list frame
-- Window resizable; minimum size 520×480 (v0.1 default layout)
+- Window resizable; minimum size 520×360 (v0.1 default layout)
 
 ## Package (.deb)
 
 ```bash
 ./packaging/build-deb.sh
-# → packaging/debs/lunduke-about_0.2.5-1_amd64.deb
+# → packaging/debs/lunduke-about_0.2.6-1_amd64.deb
 ```
 
 Installs `/usr/bin/lunduke-about`, data under `/usr/share/lunduke-about/`,
