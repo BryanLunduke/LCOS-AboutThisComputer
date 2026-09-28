@@ -1,5 +1,10 @@
 # lunduke-about NOTES
 
+## v0.7
+
+- LCOS 0.7 track identity bump. Features and UI unchanged from 0.2.8
+- Meson project version **0.7.0**; Debian **0.7-1** (`lunduke-about_0.7-1_amd64.deb`)
+
 ## v0.2.7
 
 - RAM accounting: GUI app rows report **RssAnon only** (private heap)
