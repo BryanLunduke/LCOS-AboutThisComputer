@@ -1,3 +1,11 @@
+lunduke-about (0.8-1) unstable; urgency=medium
+
+  * LCOS 0.8 track identity bump (0.7 → 0.8 / Debian 0.8-1).
+  * Features and UI unchanged (Supporters block, RssAnon per-app RAM,
+    LCOS System residual, theme background, icons).
+
+ -- Phil <phil@brushpad.local>  Mon, 28 Sep 2026 21:34:20 -0500
+
 lunduke-about (0.7-1) unstable; urgency=medium
 
   * LCOS 0.7 track identity bump (0.2.8 → 0.7 / Debian 0.7-1).

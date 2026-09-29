@@ -1,5 +1,10 @@
 # lunduke-about NOTES
 
+## v0.8
+
+- LCOS 0.8 track identity bump. Features and UI unchanged from 0.7
+- Meson project version **0.8.0**; Debian **0.8-1** (`lunduke-about_0.8-1_amd64.deb`)
+
 ## v0.7
 
 - LCOS 0.7 track identity bump. Features and UI unchanged from 0.2.8
