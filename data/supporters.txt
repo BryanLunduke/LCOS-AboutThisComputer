@@ -1,4 +1,5 @@
 # About This Computer Supporters block (one name per line; blank lines kept).
 # Lines starting with # are ignored. Loaded at runtime from this file.
 "Fuzzy", Steven P.
+Chris Hammond
 

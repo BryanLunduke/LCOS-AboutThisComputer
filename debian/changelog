@@ -1,3 +1,9 @@
+lunduke-about (0.8-2) unstable; urgency=medium
+
+  * Supporters of LCOS: add Chris Hammond.
+
+ -- Phil <phil@brushpad.local>  Fri, 02 Oct 2026 12:53:00 -0500
+
 lunduke-about (0.8-1) unstable; urgency=medium
 
   * LCOS 0.8 track identity bump (0.7 → 0.8 / Debian 0.8-1).

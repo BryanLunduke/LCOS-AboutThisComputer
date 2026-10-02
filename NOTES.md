@@ -1,5 +1,10 @@
 # lunduke-about NOTES
 
+## v0.8.1
+
+- Supporters of LCOS: add Chris Hammond (after "Fuzzy", Steven P.)
+- Meson project version **0.8.1**; Debian **0.8-2** (`lunduke-about_0.8-2_amd64.deb`)
+
 ## v0.8
 
 - LCOS 0.8 track identity bump. Features and UI unchanged from 0.7
