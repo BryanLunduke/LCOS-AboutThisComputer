@@ -1,3 +1,10 @@
+lunduke-about (0.8-4) unstable; urgency=medium
+
+  * Supporters of LCOS: add Mike Beasley.
+  * Meson project version 0.8.3.
+
+ -- Phil <phil@brushpad.local>  Fri, 02 Oct 2026 16:38:00 -0500
+
 lunduke-about (0.8-3) unstable; urgency=medium
 
   * Supporters of LCOS: show names comma-separated and right-aligned,
