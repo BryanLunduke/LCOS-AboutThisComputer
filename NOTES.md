@@ -1,5 +1,10 @@
 # lunduke-about NOTES
 
+## v0.8.3
+
+- Supporters of LCOS: add Mike Beasley (after "Fuzzy", Steven P., Chris Hammond)
+- Meson project version **0.8.3**; Debian **0.8-4** (`lunduke-about_0.8-4_amd64.deb`)
+
 ## v0.8.2
 
 - Supporters of LCOS: join names with comma-space (`"Fuzzy", Steven P., Chris Hammond`), right-align, and wrap beside the logo (no ellipsis)

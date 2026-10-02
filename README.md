@@ -3,6 +3,8 @@
 Classic Mac OS 9–inspired **About This Computer** window for LCOS.
 Replaces Software-menu **About This Computer** (`xfce4-about.desktop` → `lunduke-about`) in LCOS live-07.
 
+**v0.8.3** — Supporters of LCOS: add Mike Beasley (Debian **0.8-4**).
+
 **v0.8.2** — Supporters names are comma-separated, right-aligned, and wrap beside the logo. A slow upward credits crawl runs only when those wrapped lines are too tall for the header; when they fit, the list stays static (Debian **0.8-3**).
 
 **v0.8.1** — Supporters of LCOS: add Chris Hammond (Debian **0.8-2**).
@@ -80,7 +82,7 @@ Window / Software-menu icon uses the **simple LCOS outline** seal
 (`org.lunduke.AboutThisComputer` hicolor PNGs), matching `lcos32.png` / `lcos-logo.png`
 — not the full rings mark and not a generic document icon.
 
-## Features (v0.8.2)
+## Features (v0.8.3)
 
 - OS Version from `/etc/os-release` (falls back to LCOS live recipe sample if host isn’t LCOS)
 - Total RAM, CPU model (`/proc/cpuinfo`), GPU (best-effort `lspci`) in a two-column stats row
@@ -97,7 +99,7 @@ Window / Software-menu icon uses the **simple LCOS outline** seal
 
 ```bash
 ./packaging/build-deb.sh
-# → packaging/debs/lunduke-about_0.8-3_amd64.deb
+# → packaging/debs/lunduke-about_0.8-4_amd64.deb
 ```
 
 Installs `/usr/bin/lunduke-about`, data under `/usr/share/lunduke-about/`,
