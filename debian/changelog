@@ -1,3 +1,14 @@
+lunduke-about (0.8-3) unstable; urgency=medium
+
+  * Supporters of LCOS: show names comma-separated and right-aligned,
+    wrapping beside the logo instead of ellipsizing.
+  * Crawl the names upward, movie-credits style, only when the wrapped
+    lines are too tall for the header. Leave them fully static when they
+    fit (no idle animation). Title stays fixed.
+  * Meson project version 0.8.2.
+
+ -- Phil <phil@brushpad.local>  Fri, 02 Oct 2026 13:30:00 -0500
+
 lunduke-about (0.8-2) unstable; urgency=medium
 
   * Supporters of LCOS: add Chris Hammond.

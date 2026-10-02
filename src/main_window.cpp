@@ -58,6 +58,12 @@ window.lunduke-about * {
 .about-header {
   background-color: @theme_bg_color;
 }
+.supporters-names {
+  background-color: @theme_bg_color;
+  color: @theme_fg_color;
+  font-size: 13px;
+  font-weight: bold;
+}
 scrollbar.platinum-scroll {
   background-color: @theme_bg_color;
 }
@@ -73,7 +79,245 @@ scrollbar.platinum-scroll button {
 }
 )CSS";
 
+// Movie-credits crawl. Slow enough to read; integer pixels so the names stay
+// as sharp as the title. The gap is only used while looping an overflow list.
+constexpr double kCreditsPixelsPerSecond = 16.0;
+constexpr int kCreditsLoopGapPx = 22;
+// 1px covers allocation rounding. Anything taller is real clipping.
+constexpr int kFitSlackPx = 1;
+
+int positive_height(Gtk::Widget& widget, int fallback) {
+  const int allocated = widget.get_allocated_height();
+  if (allocated > 1) return allocated;
+  int minimum = 0;
+  int natural = 0;
+  widget.get_preferred_height(minimum, natural);
+  if (natural > 1) return natural;
+  return fallback;
+}
+
 }  // namespace
+
+SupportersNamesView::SupportersNamesView() {
+  set_halign(Gtk::ALIGN_FILL);
+  set_hexpand(true);
+  set_vexpand(false);
+  set_valign(Gtk::ALIGN_START);
+  get_style_context()->add_class("supporters-names");
+  get_style_context()->add_class("about-info");
+}
+
+SupportersNamesView::~SupportersNamesView() {
+  stop_tick();
+}
+
+void SupportersNamesView::set_text(const Glib::ustring& text) {
+  if (text_ == text) return;
+  text_ = text;
+  scroll_offset_ = 0.0;
+  invalidate_layout();
+  queue_resize();
+}
+
+void SupportersNamesView::set_max_height(int height) {
+  if (height < 1) height = 1;
+  if (height == max_height_) return;
+  max_height_ = height;
+  queue_resize();
+}
+
+Gtk::SizeRequestMode SupportersNamesView::get_request_mode_vfunc() const {
+  return Gtk::SIZE_REQUEST_HEIGHT_FOR_WIDTH;
+}
+
+void SupportersNamesView::get_preferred_width_vfunc(int& minimum_width,
+                                                   int& natural_width) const {
+  // The header row already has a width (window minus the logo). Reporting a
+  // tiny natural width lets that row assign the leftover space instead of
+  // the unwrapped names pushing the window wider or into the logo.
+  minimum_width = 1;
+  natural_width = 1;
+}
+
+void SupportersNamesView::get_preferred_height_vfunc(int& minimum_height,
+                                                    int& natural_height) const {
+  int width = get_allocated_width();
+  if (width < 40) width = 320;
+  get_preferred_height_for_width_vfunc(width, minimum_height, natural_height);
+}
+
+void SupportersNamesView::get_preferred_height_for_width_vfunc(
+    int width, int& minimum_height, int& natural_height) const {
+  // A width this small is the minimum-size probe, not the header allocation.
+  // Report one line so that probe cannot turn the window into a tall column.
+  if (width < 40) {
+    ensure_layout(320);
+    int line = single_line_height_ > 0 ? single_line_height_ : layout_pixel_height_;
+    if (line < 1) line = 1;
+    minimum_height = line;
+    natural_height = line;
+    return;
+  }
+
+  ensure_layout(width);
+  int shown = layout_pixel_height_;
+  if (shown < 1) shown = 1;
+  if (max_height_ > 0 && shown > max_height_) shown = max_height_;
+  minimum_height = shown;
+  natural_height = shown;
+}
+
+void SupportersNamesView::on_size_allocate(Gtk::Allocation& allocation) {
+  Gtk::DrawingArea::on_size_allocate(allocation);
+  if (allocation.get_width() > 1) ensure_layout(allocation.get_width());
+  sync_scroll_policy();
+}
+
+void SupportersNamesView::on_style_updated() {
+  Gtk::DrawingArea::on_style_updated();
+  invalidate_layout();
+  queue_resize();
+}
+
+void SupportersNamesView::invalidate_layout() {
+  layout_.reset();
+  layout_width_ = -1;
+  layout_pixel_height_ = 0;
+  single_line_height_ = 0;
+}
+
+void SupportersNamesView::ensure_layout(int width) const {
+  if (width < 1) width = 1;
+  if (layout_ && layout_width_ == width) return;
+
+  auto layout = const_cast<SupportersNamesView*>(this)->create_pango_layout(text_);
+  layout->set_wrap(Pango::WRAP_WORD_CHAR);
+  layout->set_ellipsize(Pango::ELLIPSIZE_NONE);
+  layout->set_alignment(Pango::ALIGN_RIGHT);
+  layout->set_width(width * PANGO_SCALE);
+
+  int pixel_width = 0;
+  int pixel_height = 0;
+  layout->get_pixel_size(pixel_width, pixel_height);
+  (void)pixel_width;
+
+  auto single = const_cast<SupportersNamesView*>(this)->create_pango_layout(text_);
+  single->set_width(-1);
+  int single_width = 0;
+  int single_height = 0;
+  single->get_pixel_size(single_width, single_height);
+  (void)single_width;
+
+  layout_ = layout;
+  layout_width_ = width;
+  layout_pixel_height_ = pixel_height;
+  single_line_height_ = single_height > 0 ? single_height : 1;
+}
+
+bool SupportersNamesView::names_overflow(int view_height) const {
+  // A strip shorter than one line is an unfinished header measure (the logo
+  // size is not known yet). The names are not actually too tall to read, so
+  // do not arm the crawl.
+  if (view_height <= 1 || layout_pixel_height_ <= 0) return false;
+  if (single_line_height_ > 1 &&
+      view_height + kFitSlackPx < single_line_height_) {
+    return false;
+  }
+  return layout_pixel_height_ > view_height + kFitSlackPx;
+}
+
+void SupportersNamesView::sync_scroll_policy() {
+  // Visible fit: keep every name on screen and do not arm a frame callback.
+  if (!names_overflow(get_allocated_height())) {
+    if (scroll_offset_ != 0.0) {
+      scroll_offset_ = 0.0;
+      queue_draw();
+    }
+    last_frame_us_ = 0;
+    stop_tick();
+    return;
+  }
+  start_tick();
+}
+
+void SupportersNamesView::start_tick() {
+  if (tick_id_ != 0) return;
+  last_frame_us_ = 0;
+  tick_id_ = add_tick_callback(sigc::mem_fun(*this, &SupportersNamesView::on_tick));
+}
+
+void SupportersNamesView::stop_tick() {
+  if (tick_id_ == 0) return;
+  const guint id = tick_id_;
+  tick_id_ = 0;
+  remove_tick_callback(id);
+}
+
+bool SupportersNamesView::on_tick(const Glib::RefPtr<Gdk::FrameClock>& clock) {
+  const int view_h = get_allocated_height();
+  if (!names_overflow(view_h)) {
+    scroll_offset_ = 0.0;
+    last_frame_us_ = 0;
+    tick_id_ = 0;
+    queue_draw();
+    return false;
+  }
+
+  const gint64 now = clock->get_frame_time();
+  if (last_frame_us_ == 0) last_frame_us_ = now;
+  double dt = static_cast<double>(now - last_frame_us_) / 1000000.0;
+  last_frame_us_ = now;
+  if (dt < 0.0) dt = 0.0;
+  if (dt > 0.05) dt = 0.05;
+
+  scroll_offset_ += kCreditsPixelsPerSecond * dt;
+  const double cycle =
+      static_cast<double>(layout_pixel_height_ + kCreditsLoopGapPx);
+  if (cycle > 1.0) {
+    while (scroll_offset_ >= cycle) scroll_offset_ -= cycle;
+  }
+
+  queue_draw();
+  return true;
+}
+
+bool SupportersNamesView::on_draw(const Cairo::RefPtr<Cairo::Context>& cr) {
+  const int width = get_allocated_width();
+  const int height = get_allocated_height();
+  if (width <= 0 || height <= 0) return true;
+
+  ensure_layout(width);
+
+  auto style = get_style_context();
+  style->render_background(cr, 0, 0, width, height);
+
+  cr->save();
+  cr->rectangle(0, 0, width, height);
+  cr->clip();
+
+  const auto color = style->get_color(get_state_flags());
+  cr->set_source_rgba(color.get_red(), color.get_green(), color.get_blue(),
+                      color.get_alpha());
+
+  const bool overflow = names_overflow(height);
+  const int origin = overflow ? -static_cast<int>(scroll_offset_) : 0;
+
+  auto paint_at = [&](int y) {
+    cr->save();
+    cr->translate(0, y);
+    layout_->show_in_cairo_context(cr);
+    cr->restore();
+  };
+
+  paint_at(origin);
+  // Second copy is what makes the crawl loop without a jump. It stays
+  // outside the clip until the first copy has moved up, and it is not
+  // drawn at all when the names already fit.
+  if (overflow) paint_at(origin + layout_pixel_height_ + kCreditsLoopGapPx);
+
+  cr->restore();
+  return true;
+}
 
 MainWindow::MainWindow() {
   set_title("About This Computer");
@@ -99,7 +343,8 @@ MainWindow::MainWindow() {
   root_.set_spacing(8);
 
   // 1. Header: LCOS logo left + Supporters block right (right-justified).
-  //    supporters_box_ is the hook point for a future upward credits scroll.
+  //    The title stays put. Names wrap in the space beside the logo and crawl
+  //    upward only when those wrapped lines are taller than this header row.
   auto* header = Gtk::make_managed<Gtk::Box>(Gtk::ORIENTATION_HORIZONTAL, 16);
   header->get_style_context()->add_class("about-header");
   header->set_halign(Gtk::ALIGN_FILL);
@@ -114,7 +359,9 @@ MainWindow::MainWindow() {
   logo_.set_margin_bottom(2);
 
   supporters_box_.get_style_context()->add_class("about-info");
-  supporters_box_.set_halign(Gtk::ALIGN_END);
+  // FILL so the names wrap across the leftover header width, not a narrow
+  // natural width. The title and the name lines stay right-aligned inside it.
+  supporters_box_.set_halign(Gtk::ALIGN_FILL);
   supporters_box_.set_valign(Gtk::ALIGN_CENTER);
   supporters_box_.set_hexpand(true);
   supporters_box_.set_spacing(0);
@@ -122,21 +369,25 @@ MainWindow::MainWindow() {
   supporters_title_.set_text("Supporters of LCOS");
   supporters_title_.set_halign(Gtk::ALIGN_END);
   supporters_title_.set_justify(Gtk::JUSTIFY_RIGHT);
+  supporters_title_.set_xalign(1.0f);
   // Blank line between title and name (nbsp so the row does not collapse).
   supporters_blank_.set_text(u8"\u00a0");
   supporters_blank_.set_halign(Gtk::ALIGN_END);
-  supporters_names_.set_halign(Gtk::ALIGN_END);
-  supporters_names_.set_justify(Gtk::JUSTIFY_RIGHT);
 
   supporters_box_.pack_start(supporters_title_, Gtk::PACK_SHRINK);
   supporters_box_.pack_start(supporters_blank_, Gtk::PACK_SHRINK);
-  supporters_box_.pack_start(supporters_names_, Gtk::PACK_SHRINK);
+  supporters_box_.pack_start(supporters_names_view_, Gtk::PACK_SHRINK);
 
   header->pack_start(logo_, Gtk::PACK_SHRINK);
   header->pack_start(supporters_box_, Gtk::PACK_EXPAND_WIDGET);
   root_.pack_start(*header, Gtk::PACK_SHRINK);
 
   load_supporters();
+  update_supporters_cap();
+  // queue_resize during size-allocate is dropped, so refine the cap on idle
+  // once the logo and title have real heights.
+  header->signal_size_allocate().connect(
+      sigc::mem_fun(*this, &MainWindow::on_supporters_header_allocate));
 
   // 2. System info — two columns (left: version + memory; right: CPU + GPU)
   auto* info_cols = Gtk::make_managed<Gtk::Box>(Gtk::ORIENTATION_HORIZONTAL, 24);
@@ -303,30 +554,57 @@ Glib::RefPtr<Gdk::Pixbuf> MainWindow::load_lcos_system_icon() const {
   return {};
 }
 
+void MainWindow::update_supporters_cap() {
+  // Names may use the header row beside the logo, under the fixed title
+  // and the blank line. They must not make that row taller than the logo.
+  // load_logo() scales the mark to 120px; use that until the image is allocated.
+  const int logo_px = positive_height(logo_, 120);
+  const int logo_span = logo_px + logo_.get_margin_top() + logo_.get_margin_bottom();
+  const int title_h = positive_height(supporters_title_, 16);
+  const int blank_h = positive_height(supporters_blank_, 16);
+
+  int max_names = logo_span - title_h - blank_h;
+  if (max_names < 1) max_names = 1;
+  supporters_names_view_.set_max_height(max_names);
+}
+
+void MainWindow::on_supporters_header_allocate(Gtk::Allocation& /*allocation*/) {
+  if (supporters_cap_update_queued_) return;
+  supporters_cap_update_queued_ = true;
+  Glib::signal_idle().connect_once([this]() {
+    supporters_cap_update_queued_ = false;
+    update_supporters_cap();
+  });
+}
+
 void MainWindow::load_supporters() {
-  // Preserve blank lines from supporters.txt so the right block shows
-  // title / blank / names with intentional gaps.
+  // One entry per non-empty line. Join with comma-space so the header reads
+  // "Fuzzy", Steven P., Chris Hammond — including whatever punctuation the
+  // line already has (Fuzzy stays quoted).
   std::string path = find_data_file("supporters.txt");
   std::ifstream in(path);
   std::string names;
   if (in) {
     std::string line;
-    bool started = false;
     while (std::getline(in, line)) {
+      if (!line.empty() && line.back() == '\r') line.pop_back();
       if (!line.empty() && line[0] == '#') continue;
-      if (!started) {
-        if (line.empty()) continue;  // skip leading blanks after comments
-        started = true;
-      } else {
-        names += '\n';
+      bool blank = true;
+      for (char c : line) {
+        if (c != ' ' && c != '\t') {
+          blank = false;
+          break;
+        }
       }
+      if (blank) continue;
+      if (!names.empty()) names += ", ";
       names += line;
     }
   }
   if (names.empty()) {
-    names = "\"Fuzzy\", Steven P.";
+    names = "\"Fuzzy\", Steven P., Chris Hammond";
   }
-  supporters_names_.set_text(names);
+  supporters_names_view_.set_text(names);
 }
 
 void MainWindow::update_ram_bar() {

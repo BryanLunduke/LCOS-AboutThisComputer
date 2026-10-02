@@ -1,5 +1,11 @@
 # lunduke-about NOTES
 
+## v0.8.2
+
+- Supporters of LCOS: join names with comma-space (`"Fuzzy", Steven P., Chris Hammond`), right-align, and wrap beside the logo (no ellipsis)
+- Slow upward credits crawl of the names only when the wrapped lines are too tall for the header next to the logo; fully static when they fit (no idle animation). Title stays fixed
+- Meson project version **0.8.2**; Debian **0.8-3** (`lunduke-about_0.8-3_amd64.deb`)
+
 ## v0.8.1
 
 - Supporters of LCOS: add Chris Hammond (after "Fuzzy", Steven P.)

@@ -3,6 +3,8 @@
 Classic Mac OS 9–inspired **About This Computer** window for LCOS.
 Replaces Software-menu **About This Computer** (`xfce4-about.desktop` → `lunduke-about`) in LCOS live-07.
 
+**v0.8.2** — Supporters names are comma-separated, right-aligned, and wrap beside the logo. A slow upward credits crawl runs only when those wrapped lines are too tall for the header; when they fit, the list stays static (Debian **0.8-3**).
+
 **v0.8.1** — Supporters of LCOS: add Chris Hammond (Debian **0.8-2**).
 
 **v0.8** — LCOS 0.8 track identity bump (Debian **0.8-1**). Features and UI unchanged from 0.7 / 0.2.8.
@@ -60,10 +62,14 @@ Data files (`supporters.txt`, logo pixmaps) are resolved from:
 
 ### Supporters of LCOS
 
-Top-right static text block (right-justified): title, blank line, then names from
-`data/supporters.txt` (comma-separated or one name per line; `#` comments).
-Loaded at startup — no rebuild needed when running against the source `data/` path
-or after reinstall. Layout leaves room for a future upward movie-credits scroll.
+Top-right block (right-justified), same font as the OS Version line. The title
+stays put. Names come from `data/supporters.txt` (one entry per line, `#`
+comments) and are shown joined with a comma and a space. Long lines wrap inside
+the space beside the LCOS logo instead of using an ellipsis. If the wrapped
+names are taller than that header area, only the names crawl upward slowly,
+movie-credits style. When the names fit, they stay fully static — no animation.
+Loaded at startup — no rebuild needed when running against the source `data/`
+path or after reinstall.
 
 ### Logo
 
@@ -74,12 +80,12 @@ Window / Software-menu icon uses the **simple LCOS outline** seal
 (`org.lunduke.AboutThisComputer` hicolor PNGs), matching `lcos32.png` / `lcos-logo.png`
 — not the full rings mark and not a generic document icon.
 
-## Features (v0.8.1)
+## Features (v0.8.2)
 
 - OS Version from `/etc/os-release` (falls back to LCOS live recipe sample if host isn’t LCOS)
 - Total RAM, CPU model (`/proc/cpuinfo`), GPU (best-effort `lspci`) in a two-column stats row
 - Full-width Mac OS 9–style RAM bar (`X RAM Used` / `X RAM Free` overlays)
-- Right-justified “Supporters of LCOS” text block (logo left)
+- Right-justified “Supporters of LCOS” block (logo left): comma-separated names, wrap beside the logo, credits crawl only when the names overflow the header
 - Graphical apps, then **LCOS System** at bottom (system RAM remainder; not Force-Closable)
 - App private RAM (RssAnon) as `N MB RAM Used`; LCOS System holds residual physical used (shared/RssFile/RssShmem once); empty-list copy: `No Running Software.`
 - About This Computer itself is omitted from the list
@@ -91,7 +97,7 @@ Window / Software-menu icon uses the **simple LCOS outline** seal
 
 ```bash
 ./packaging/build-deb.sh
-# → packaging/debs/lunduke-about_0.8-2_amd64.deb
+# → packaging/debs/lunduke-about_0.8-3_amd64.deb
 ```
 
 Installs `/usr/bin/lunduke-about`, data under `/usr/share/lunduke-about/`,
