@@ -1,5 +1,13 @@
 # lunduke-about NOTES
 
+## v0.8.4
+
+- Force Close no longer uses a row freed by the 3s refresh (no recycled PID, no `kill(0)`). Confirm rechecks `/proc` comm and start time. Failed `kill` shows that errno.
+- App list updates in place (scroll and an open Force Close menu stay). Order changes only when the set of apps changes.
+- X BadWindow during enumeration is trapped. Long UTF-8 titles stay titles. Windows with no `_NET_WM_PID` are listed without an invented PID and cannot be force-closed; unidentified windows are skipped.
+- Protected apps match WM_CLASS exactly (not a title substring). RAM bar keeps both captions on a narrow segment. `MemAvailable: 0` is real. Second activate presents the existing window. Supporters fallback includes Mike Beasley.
+- Meson project version **0.8.4**; Debian **0.8-5** (`lunduke-about_0.8-5_amd64.deb`)
+
 ## v0.8.3
 
 - Supporters of LCOS: add Mike Beasley (after "Fuzzy", Steven P., Chris Hammond)

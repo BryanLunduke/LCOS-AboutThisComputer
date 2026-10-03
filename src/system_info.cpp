@@ -2,6 +2,7 @@
 #include "system_info.hpp"
 
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -67,32 +68,59 @@ std::string read_cpu_model() {
   return "Unknown CPU";
 }
 
-long read_meminfo_kb(const char* want_key) {
-  std::ifstream in("/proc/meminfo");
-  std::string key;
-  long value = 0;
-  std::string unit;
-  while (in >> key >> value >> unit) {
-    if (key == want_key) return value;
-  }
-  return 0;
+struct MemSnapshot {
+  bool saw_available = false;
+  long total = 0;
+  long available = 0;
+  long free_kb = 0;
+  long buffers = 0;
+  long cached = 0;
+};
+
+bool parse_meminfo_line(const std::string& line, std::string& key, long& value) {
+  const auto colon = line.find(':');
+  if (colon == std::string::npos) return false;
+  key = line.substr(0, colon + 1);
+  const char* p = line.c_str() + colon + 1;
+  while (*p == ' ' || *p == '\t') ++p;
+  char* end = nullptr;
+  const long parsed = std::strtol(p, &end, 10);
+  if (end == p) return false;
+  value = parsed;
+  return true;
 }
 
-long read_mem_total_kb() { return read_meminfo_kb("MemTotal:"); }
-
-long read_mem_available_kb() {
-  long avail = read_meminfo_kb("MemAvailable:");
-  if (avail > 0) return avail;
-  // Older kernels: approximate with MemFree + Buffers + Cached
-  long free_kb = read_meminfo_kb("MemFree:");
-  long buffers = read_meminfo_kb("Buffers:");
-  long cached = read_meminfo_kb("Cached:");
-  return free_kb + buffers + cached;
+MemSnapshot read_mem_snapshot() {
+  MemSnapshot snap;
+  std::ifstream in("/proc/meminfo");
+  std::string line;
+  while (std::getline(in, line)) {
+    std::string key;
+    long value = 0;
+    if (!parse_meminfo_line(line, key, value)) continue;
+    if (key == "MemTotal:") {
+      snap.total = value;
+    } else if (key == "MemAvailable:") {
+      snap.available = value;
+      snap.saw_available = true;
+    } else if (key == "MemFree:") {
+      snap.free_kb = value;
+    } else if (key == "Buffers:") {
+      snap.buffers = value;
+    } else if (key == "Cached:") {
+      snap.cached = value;
+    }
+  }
+  return snap;
 }
 
 void apply_memory_fields(SystemInfo& info) {
-  info.total_memory_kb = read_mem_total_kb();
-  info.available_memory_kb = read_mem_available_kb();
+  const MemSnapshot snap = read_mem_snapshot();
+  info.total_memory_kb = snap.total;
+  // MemAvailable: 0 is real (nothing reclaimable). Only an absent field
+  // falls back to the older MemFree + Buffers + Cached estimate.
+  if (snap.saw_available) info.available_memory_kb = snap.available;
+  else info.available_memory_kb = snap.free_kb + snap.buffers + snap.cached;
   if (info.available_memory_kb > info.total_memory_kb)
     info.available_memory_kb = info.total_memory_kb;
   info.used_memory_kb = info.total_memory_kb - info.available_memory_kb;

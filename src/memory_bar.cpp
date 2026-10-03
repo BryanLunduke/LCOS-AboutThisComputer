@@ -68,27 +68,76 @@ bool MemoryBar::on_draw(const Cairo::RefPtr<Cairo::Context>& cr) {
   cr->line_to(x, y + bar_h);
   cr->stroke();
 
-  auto draw_centered = [&](const std::string& text, double region_x, double region_w,
-                           bool on_blue) {
-    if (region_w < 8.0 || text.empty()) return;
+  // Center a caption in its segment when it fits. A segment under ~25% is
+  // too narrow for that, but the caption still has to stay on the bar:
+  // pin it to the outer edge instead of dropping it.
+  auto make_layout = [&](const std::string& text, int& tw, int& th) {
     auto layout = create_pango_layout(text);
     Pango::FontDescription fd;
     fd.set_family("Sans");
     fd.set_size(10 * PANGO_SCALE);
     fd.set_weight(Pango::WEIGHT_BOLD);
     layout->set_font_description(fd);
-    int tw = 0, th = 0;
     layout->get_pixel_size(tw, th);
-    if (tw + 4 > region_w) {
-      // Fall back to slightly smaller if it won't fit
-      fd.set_size(9 * PANGO_SCALE);
-      layout->set_font_description(fd);
-      layout->get_pixel_size(tw, th);
+    return layout;
+  };
+
+  const std::string used_text = format_memory_human(used_kb_) + " RAM Used";
+  int utw = 0, uth = 0;
+  auto used_layout = make_layout(used_text, utw, uth);
+
+  const bool show_free = free_kb > 0;
+  int ftw = 0, fth = 0;
+  Glib::RefPtr<Pango::Layout> free_layout;
+  std::string free_text;
+  if (show_free) {
+    free_text = format_memory_human(free_kb) + " RAM Free";
+    free_layout = make_layout(free_text, ftw, fth);
+  }
+
+  auto fits = [](double region_w, int tw) {
+    return region_w >= static_cast<double>(tw) + 2.0;
+  };
+
+  double used_tx = fits(used_w, utw) ? (x + (used_w - utw) / 2.0) : (x + 3.0);
+  double free_tx = 0.0;
+  if (show_free) {
+    free_tx = fits(free_w, ftw) ? (x + used_w + (free_w - ftw) / 2.0)
+                                : (x + bar_w - ftw - 3.0);
+    if (used_tx + utw > free_tx - 4.0) {
+      used_tx = x + 3.0;
+      free_tx = x + bar_w - ftw - 3.0;
     }
-    if (tw + 2 > region_w) return;  // still too wide — omit rather than clip badly
-    const double tx = region_x + (region_w - tw) / 2.0;
-    const double ty = y + (bar_h - th) / 2.0;
-    if (on_blue) {
+  }
+
+  auto clamp_x = [&](double tx, int tw) {
+    const double min_x = x + 2.0;
+    const double max_x = x + bar_w - tw - 2.0;
+    if (max_x < min_x) return min_x;
+    return std::clamp(tx, min_x, max_x);
+  };
+  used_tx = clamp_x(used_tx, utw);
+  if (show_free) free_tx = clamp_x(free_tx, ftw);
+
+  const double used_right = x + used_w;
+  auto paint = [&](const Glib::RefPtr<Pango::Layout>& layout, double tx, double ty,
+                   int tw) {
+    const double x1 = tx;
+    const double x2 = tx + tw;
+    const bool fully_on_blue = x2 <= used_right + 0.5;
+    const bool fully_on_light = x1 >= used_right - 0.5;
+    const bool crossing = !fully_on_blue && !fully_on_light;
+    if (crossing) {
+      cr->set_source_rgb(0.05, 0.05, 0.05);
+      for (int dx = -1; dx <= 1; ++dx) {
+        for (int dy = -1; dy <= 1; ++dy) {
+          if (dx == 0 && dy == 0) continue;
+          cr->move_to(tx + dx, ty + dy);
+          layout->show_in_cairo_context(cr);
+        }
+      }
+      cr->set_source_rgb(1.0, 1.0, 1.0);
+    } else if (fully_on_blue) {
       cr->set_source_rgb(1.0, 1.0, 1.0);
     } else {
       cr->set_source_rgb(0.10, 0.10, 0.10);
@@ -97,12 +146,9 @@ bool MemoryBar::on_draw(const Cairo::RefPtr<Cairo::Context>& cr) {
     layout->show_in_cairo_context(cr);
   };
 
-  const std::string used_text = format_memory_human(used_kb_) + " RAM Used";
-  draw_centered(used_text, x, used_w, true);
-
-  if (free_kb > 0) {
-    const std::string free_text = format_memory_human(free_kb) + " RAM Free";
-    draw_centered(free_text, x + used_w, free_w, false);
+  paint(used_layout, used_tx, y + (bar_h - uth) / 2.0, utw);
+  if (show_free) {
+    paint(free_layout, free_tx, y + (bar_h - fth) / 2.0, ftw);
   }
 
   return true;

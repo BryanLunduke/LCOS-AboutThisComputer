@@ -6,9 +6,13 @@
 #include <fstream>
 #include <sstream>
 #include <iostream>
+#include <algorithm>
+#include <map>
+#include <set>
 #include <unistd.h>
 #include <signal.h>
 #include <sys/types.h>
+#include <cerrno>
 #include <cstring>
 
 namespace lundukeabout {
@@ -85,6 +89,45 @@ constexpr double kCreditsPixelsPerSecond = 16.0;
 constexpr int kCreditsLoopGapPx = 22;
 // 1px covers allocation rounding. Anything taller is real clipping.
 constexpr int kFitSlackPx = 1;
+
+std::string app_key(const AppEntry& entry) {
+  if (entry.pid > 1) return "pid:" + std::to_string(entry.pid);
+  return "xid:" + std::to_string(entry.xid);
+}
+
+struct ProcIdentity {
+  bool ok = false;
+  std::string comm;
+  unsigned long long start_ticks = 0;
+};
+
+// /proc/<pid>/stat: pid (comm) state ... starttime is field 22.
+// comm is everything between the first '(' and the last ')'.
+ProcIdentity read_proc_identity(pid_t pid) {
+  ProcIdentity id;
+  if (pid <= 1) return id;
+  std::ifstream in("/proc/" + std::to_string(pid) + "/stat");
+  std::string stat;
+  if (!std::getline(in, stat)) return id;
+  const auto lparen = stat.find('(');
+  const auto rparen = stat.rfind(')');
+  if (lparen == std::string::npos || rparen == std::string::npos || rparen <= lparen) {
+    return id;
+  }
+  id.comm = stat.substr(lparen + 1, rparen - lparen - 1);
+  std::istringstream iss(stat.substr(rparen + 1));
+  std::string tok;
+  for (int field = 3; field <= 22; ++field) {
+    if (!(iss >> tok)) return id;
+  }
+  try {
+    id.start_ticks = std::stoull(tok);
+  } catch (...) {
+    return id;
+  }
+  id.ok = true;
+  return id;
+}
 
 int positive_height(Gtk::Widget& widget, int fallback) {
   const int allocated = widget.get_allocated_height();
@@ -602,7 +645,7 @@ void MainWindow::load_supporters() {
     }
   }
   if (names.empty()) {
-    names = "\"Fuzzy\", Steven P., Chris Hammond";
+    names = "\"Fuzzy\", Steven P., Chris Hammond, Mike Beasley";
   }
   supporters_names_view_.set_text(names);
 }
@@ -613,14 +656,119 @@ void MainWindow::update_ram_bar() {
   ram_bar_.set_memory(info_.used_memory_kb, info_.total_memory_kb);
 }
 
+AppEntry MainWindow::make_system_entry(long system_kb) {
+  AppEntry system_entry;
+  system_entry.name = "LCOS System";
+  system_entry.pid = 0;
+  system_entry.rss_kb = system_kb;
+  if (!system_icon_) system_icon_ = load_lcos_system_icon();
+  system_entry.icon = system_icon_;
+  system_entry.protected_app = true;
+  system_entry.protect_reason = "system";
+  return system_entry;
+}
+
+void MainWindow::sync_app_rows(const std::vector<AppEntry>& apps, bool allow_structure) {
+  std::map<std::string, const AppEntry*> by_key;
+  std::vector<std::string> new_order;
+  new_order.reserve(apps.size());
+  for (const auto& app : apps) {
+    const std::string key = app_key(app);
+    if (!by_key.emplace(key, &app).second) continue;
+    new_order.push_back(key);
+  }
+  std::set<std::string> new_keys(new_order.begin(), new_order.end());
+
+  std::set<std::string> old_keys;
+  for (const auto& item : app_rows_) old_keys.insert(item.key);
+  const bool same_set = old_keys == new_keys;
+
+  auto update_matching = [&]() {
+    for (auto& item : app_rows_) {
+      const auto it = by_key.find(item.key);
+      if (it == by_key.end() || !item.row) continue;
+      item.row->update_entry(*it->second);
+    }
+  };
+
+  // A Force Close confirm dialog runs a nested loop. Destroying the row
+  // here would free the menu item whose activate handler is still running.
+  if (!allow_structure) {
+    update_matching();
+    return;
+  }
+
+  double saved_scroll = 0.0;
+  bool restore_scroll = false;
+  if (!same_set) {
+    if (auto adj = list_scroll_.get_vadjustment()) {
+      saved_scroll = adj->get_value();
+      restore_scroll = true;
+    }
+  }
+
+  if (!same_set) {
+    for (size_t i = 0; i < app_rows_.size();) {
+      if (new_keys.count(app_rows_[i].key)) {
+        ++i;
+        continue;
+      }
+      if (app_rows_[i].sep) list_box_.remove(*app_rows_[i].sep);
+      if (app_rows_[i].row) list_box_.remove(*app_rows_[i].row);
+      app_rows_.erase(app_rows_.begin() + static_cast<std::ptrdiff_t>(i));
+    }
+
+    std::set<std::string> have;
+    for (const auto& item : app_rows_) have.insert(item.key);
+    for (const auto& key : new_order) {
+      if (have.count(key)) continue;
+      const AppEntry& app = *by_key[key];
+      AppListItem item;
+      item.key = key;
+      item.row = Gtk::manage(new AppRow(app));
+      item.row->set_force_close_handler(
+          [this](const AppEntry& e) { on_force_close(e); });
+      item.sep = Gtk::make_managed<Gtk::Separator>(Gtk::ORIENTATION_HORIZONTAL);
+      list_box_.pack_start(*item.row, Gtk::PACK_SHRINK);
+      list_box_.pack_start(*item.sep, Gtk::PACK_SHRINK);
+      item.row->show_all();
+      item.sep->show();
+      app_rows_.push_back(item);
+      have.insert(key);
+    }
+  }
+
+  update_matching();
+
+  // Same apps: leave the rows where the user is looking, even if RSS rank
+  // changed. A real membership change may be re-sorted by RSS.
+  if (!same_set) {
+    std::map<std::string, AppListItem> pool;
+    for (auto& item : app_rows_) pool.emplace(item.key, item);
+    std::vector<AppListItem> ordered;
+    ordered.reserve(new_order.size());
+    int pos = 0;
+    for (const auto& key : new_order) {
+      auto it = pool.find(key);
+      if (it == pool.end() || !it->second.row) continue;
+      list_box_.reorder_child(*it->second.row, pos++);
+      if (it->second.sep) list_box_.reorder_child(*it->second.sep, pos++);
+      ordered.push_back(it->second);
+    }
+    if (system_row_) list_box_.reorder_child(*system_row_, pos);
+    app_rows_ = std::move(ordered);
+  }
+
+  if (restore_scroll) {
+    if (auto adj = list_scroll_.get_vadjustment()) {
+      const double max = std::max(0.0, adj->get_upper() - adj->get_page_size());
+      adj->set_value(std::min(saved_scroll, max));
+    }
+  }
+}
+
 void MainWindow::refresh_app_list() {
   update_ram_bar();
-
-  // Clear existing rows (managed widgets destroyed on remove)
-  auto children = list_box_.get_children();
-  for (auto* child : children) {
-    list_box_.remove(*child);
-  }
 
   auto apps = enumerate_graphical_apps(getpid());
 
@@ -634,34 +782,37 @@ void MainWindow::refresh_app_list() {
   long system_kb = info_.used_memory_kb - apps_rss;
   if (system_kb < 0) system_kb = 0;
 
-  // GUI apps first …
-  for (const auto& a : apps) {
-    auto* row = Gtk::manage(new AppRow(a));
-    row->set_force_close_handler(
-        [this](const AppEntry& e) { on_force_close(e); });
-    auto* sep = Gtk::make_managed<Gtk::Separator>(Gtk::ORIENTATION_HORIZONTAL);
-    list_box_.pack_start(*row, Gtk::PACK_SHRINK);
-    list_box_.pack_start(*sep, Gtk::PACK_SHRINK);
+  const AppEntry system_entry = make_system_entry(system_kb);
+  if (!system_row_) {
+    system_row_ = Gtk::manage(new AppRow(system_entry));
+    list_box_.pack_start(*system_row_, Gtk::PACK_SHRINK);
+    system_row_->show_all();
+  } else {
+    system_row_->update_entry(system_entry);
   }
 
-  // … then LCOS System always at the bottom (protected / non-closable).
-  AppEntry system_entry;
-  system_entry.name = "LCOS System";
-  system_entry.pid = 0;
-  system_entry.rss_kb = system_kb;
-  system_entry.icon = load_lcos_system_icon();
-  system_entry.protected_app = true;
-  system_entry.protect_reason = "system";
-
-  auto* sys_row = Gtk::manage(new AppRow(system_entry));
-  // No force-close handler — protected / non-closable.
-  list_box_.pack_start(*sys_row, Gtk::PACK_SHRINK);
-
-  list_box_.show_all();
+  sync_app_rows(apps, force_close_depth_ == 0);
 }
 
-void MainWindow::on_force_close(const AppEntry& entry) {
+bool MainWindow::entry_still_listed(const AppEntry& entry) const {
+  if (entry.pid <= 1) return false;
+  const std::string key = app_key(entry);
+  const auto apps = enumerate_graphical_apps(getpid());
+  for (const auto& app : apps) {
+    if (app_key(app) == key) return true;
+  }
+  return false;
+}
+
+void MainWindow::on_force_close(const AppEntry& entry_ref) {
+  // Snapshot before the dialog. dlg.run() nests the main loop, so the 3s
+  // refresh can destroy the AppRow that owns entry_ref. Cancel and confirm
+  // both use this copy only.
+  const AppEntry entry = entry_ref;
   if (entry.protected_app || entry.pid <= 1 || entry.pid == getpid()) return;
+
+  const ProcIdentity before = read_proc_identity(entry.pid);
+  if (!before.ok) return;
 
   Gtk::MessageDialog dlg(*this,
                          "Force Close \"" + entry.name + "\"?",
@@ -676,21 +827,36 @@ void MainWindow::on_force_close(const AppEntry& entry) {
   dlg.add_button("Force Close", Gtk::RESPONSE_ACCEPT);
   dlg.set_default_response(Gtk::RESPONSE_CANCEL);
 
-  if (dlg.run() == Gtk::RESPONSE_ACCEPT) {
-    if (kill(entry.pid, SIGKILL) != 0) {
-      Gtk::MessageDialog err(*this, "Could not force-close process.", false,
-                             Gtk::MESSAGE_ERROR, Gtk::BUTTONS_OK, true);
-      err.set_secondary_text(std::strerror(errno));
-      err.run();
-    }
-    // Brief delay then refresh
-    Glib::signal_timeout().connect_seconds(
-        [this]() {
-          refresh_app_list();
-          return false;
-        },
-        1);
+  ++force_close_depth_;
+  const int response = dlg.run();
+  dlg.hide();
+  --force_close_depth_;
+  if (response != Gtk::RESPONSE_ACCEPT) return;
+
+  // pid 0 is LCOS System and kill(0) signals the whole process group.
+  if (entry.pid <= 1 || entry.pid == getpid()) return;
+  if (!entry_still_listed(entry)) return;
+
+  const ProcIdentity after = read_proc_identity(entry.pid);
+  if (!after.ok || after.comm != before.comm || after.start_ticks != before.start_ticks) {
+    return;
   }
+
+  if (kill(entry.pid, SIGKILL) != 0) {
+    const int kill_errno = errno;
+    Gtk::MessageDialog err(*this, "Could not force-close process.", false,
+                           Gtk::MESSAGE_ERROR, Gtk::BUTTONS_OK, true);
+    err.set_secondary_text(std::strerror(kill_errno));
+    err.run();
+    err.hide();
+  }
+  // Brief delay then refresh
+  Glib::signal_timeout().connect_seconds(
+      [this]() {
+        refresh_app_list();
+        return false;
+      },
+      1);
 }
 
 bool MainWindow::on_refresh_tick() {

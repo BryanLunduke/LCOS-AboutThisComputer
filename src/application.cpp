@@ -15,6 +15,13 @@ Application::Application()
 }
 
 void Application::on_activate() {
+  // A second launch (desktop file, menu) activates this process again.
+  // Present the window we already have instead of stacking another one.
+  const auto windows = get_windows();
+  if (!windows.empty()) {
+    windows.front()->present();
+    return;
+  }
   auto* window = new MainWindow();
   add_window(*window);
   window->present();

@@ -2,7 +2,25 @@
 #include "app_row.hpp"
 #include "system_info.hpp"
 
+#include <cstring>
+
 namespace lundukeabout {
+
+bool AppRow::same_pixbuf(const Glib::RefPtr<Gdk::Pixbuf>& a,
+                         const Glib::RefPtr<Gdk::Pixbuf>& b) {
+  if (a == b) return true;
+  if (!a || !b) return false;
+  if (a->get_width() != b->get_width() || a->get_height() != b->get_height() ||
+      a->get_rowstride() != b->get_rowstride() ||
+      a->get_n_channels() != b->get_n_channels() ||
+      a->get_bits_per_sample() != b->get_bits_per_sample()) {
+    return false;
+  }
+  const int nbytes = a->get_rowstride() * a->get_height();
+  if (nbytes <= 0) return true;
+  return std::memcmp(a->get_pixels(), b->get_pixels(),
+                     static_cast<size_t>(nbytes)) == 0;
+}
 
 AppRow::AppRow(const AppEntry& entry) : entry_(entry) {
   set_visible_window(false);
@@ -38,7 +56,29 @@ AppRow::AppRow(const AppEntry& entry) : entry_(entry) {
   box_.pack_start(mem_label_, Gtk::PACK_SHRINK);
 
   add_events(Gdk::BUTTON_PRESS_MASK);
+  if (entry.icon) shown_icon_ = entry.icon;
+
   show_all();
+}
+
+void AppRow::update_entry(const AppEntry& entry) {
+  const bool name_changed = entry_.name != entry.name;
+  const bool mem_changed = entry_.rss_kb != entry.rss_kb;
+  const bool prot_changed = entry_.protected_app != entry.protected_app;
+  entry_ = entry;
+  if (name_changed) name_.set_text(entry_.name);
+  if (mem_changed) {
+    mem_label_.set_text(format_memory_mb(entry_.rss_kb) + " RAM Used");
+  }
+  if (prot_changed) name_.set_sensitive(!entry_.protected_app);
+  if (entry_.icon && !same_pixbuf(shown_icon_, entry_.icon)) {
+    icon_.set(entry_.icon);
+    shown_icon_ = entry_.icon;
+  }
+}
+
+bool AppRow::can_force_close() const {
+  return !entry_.protected_app && entry_.pid > 1;
 }
 
 void AppRow::set_force_close_handler(ForceCloseHandler handler) {
@@ -47,13 +87,11 @@ void AppRow::set_force_close_handler(ForceCloseHandler handler) {
 
 bool AppRow::on_button_press_event(GdkEventButton* event) {
   if (event->type == GDK_BUTTON_PRESS && event->button == 3) {
-    // Protected rows (e.g. LCOS System): no Force Close action / menu.
-    if (entry_.protected_app) {
-      return true;
-    }
+    // Protected rows (LCOS System, panel, window manager, …) and windows
+    // with no real PID have no Force Close action.
+    if (!can_force_close()) return true;
     auto menu = Gtk::make_managed<Gtk::Menu>();
-    std::string label = "Force Close " + entry_.name;
-    auto item = Gtk::make_managed<Gtk::MenuItem>(label);
+    auto item = Gtk::make_managed<Gtk::MenuItem>("Force Close " + entry_.name);
     item->signal_activate().connect(sigc::mem_fun(*this, &AppRow::on_force_close));
     menu->append(*item);
     menu->show_all();
@@ -64,7 +102,12 @@ bool AppRow::on_button_press_event(GdkEventButton* event) {
 }
 
 void AppRow::on_force_close() {
-  if (handler_) handler_(entry_);
+  if (!handler_ || !can_force_close()) return;
+  // Copy before the handler runs a dialog. Refresh must not free this row
+  // out from under the reference the handler would otherwise keep.
+  const AppEntry snapshot = entry_;
+  ForceCloseHandler handler = handler_;
+  handler(snapshot);
 }
 
 }  // namespace lundukeabout
