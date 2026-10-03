@@ -1,5 +1,10 @@
 # lunduke-about NOTES
 
+## v0.9
+
+- LCOS 0.9 track identity bump. Features and UI unchanged from 0.8.4
+- Meson project version **0.9**; Debian **0.9-1** (`lunduke-about_0.9-1_amd64.deb`)
+
 ## v0.8.4
 
 - Force Close no longer uses a row freed by the 3s refresh (no recycled PID, no `kill(0)`). Confirm rechecks `/proc` comm and start time. Failed `kill` shows that errno.

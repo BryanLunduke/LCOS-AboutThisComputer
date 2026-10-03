@@ -1,3 +1,12 @@
+lunduke-about (0.9-1) unstable; urgency=medium
+
+  * LCOS 0.9 track identity bump (0.8 → 0.9 / Debian 0.9-1).
+  * Features and UI unchanged (Supporters block, RssAnon per-app RAM,
+    LCOS System residual, theme background, icons).
+  * Meson project version 0.9.
+
+ -- LCOS <lcos@lunduke.com>  Sat, 03 Oct 2026 21:09:54 +0000
+
 lunduke-about (0.8-5) unstable; urgency=medium
 
   * Force Close copies the app before the confirm dialog, so a refresh
