@@ -1,3 +1,33 @@
+lunduke-about (0.8-5) unstable; urgency=medium
+
+  * Force Close copies the app before the confirm dialog, so a refresh
+    cannot SIGKILL the wrong process or the process group. pid <= 1 is
+    refused, and a confirm is dropped when that app is gone. After the
+    dialog, the PID is checked again via /proc (command name and start
+    time); a reused PID is not killed. A failed kill reports that call's
+    errno.
+  * Refresh updates application rows in place, so the list does not blink,
+    jump back to the top, or dismiss an open Force Close menu. Rows stay
+    put unless the set of apps actually changed.
+  * A window closing during refresh no longer aborts on X BadWindow.
+    Windows without a PID are listed when they have a title or class, and
+    are not given an invented PID (no Force Close). Windows that cannot
+    be identified are skipped.
+  * Long window titles, including UTF-8, stay titles. The row label
+    already ellipsizes.
+  * Protected apps (xfwm4, polkit, xfdesktop, xfce4-panel, and the other
+    existing names) match the window class exactly. A title that merely
+    contains one of those names can still be force-closed.
+  * The RAM bar keeps both "RAM Used" and "RAM Free" when a segment is
+    too narrow to center the caption inside it.
+  * MemAvailable of 0 is honored. MemFree + Buffers + Cached is used only
+    when MemAvailable is absent.
+  * Opening About This Computer again presents the existing window.
+  * Missing-supporters fallback includes Mike Beasley.
+  * Meson project version 0.8.4.
+
+ -- LCOS <lcos@lunduke.com>  Sat, 03 Oct 2026 16:45:00 +0000
+
 lunduke-about (0.8-4) unstable; urgency=medium
 
   * Supporters of LCOS: add Mike Beasley.

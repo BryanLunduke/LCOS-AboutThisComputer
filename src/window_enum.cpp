@@ -10,6 +10,7 @@
 #include <set>
 #include <algorithm>
 #include <cstring>
+#include <cctype>
 #include <unistd.h>
 
 namespace lundukeabout {
@@ -42,18 +43,29 @@ std::string read_proc_comm(pid_t pid) {
   return s;
 }
 
-bool is_protected_name(const std::string& name, const std::string& wm_class,
-                       std::string& reason) {
-  auto lower = [](std::string s) {
-    std::transform(s.begin(), s.end(), s.begin(),
-                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return s;
-  };
-  std::string n = lower(name);
-  std::string c = lower(wm_class);
+struct WmClass {
+  std::string res_name;
+  std::string res_class;
+};
 
+bool iequals(const std::string& field, const char* needle) {
+  if (!needle) return false;
+  const size_t n = std::strlen(needle);
+  if (field.size() != n) return false;
+  for (size_t i = 0; i < n; ++i) {
+    const unsigned char a = static_cast<unsigned char>(field[i]);
+    const unsigned char b = static_cast<unsigned char>(needle[i]);
+    if (std::tolower(a) != std::tolower(b)) return false;
+  }
+  return true;
+}
+
+// Match the window class (WM_CLASS instance and class) exactly. Do not search
+// the window title: a browser page titled "... xfwm4 ..." must stay closable.
+// Comparison is case-insensitive so "Xfwm4" still matches the "xfwm4" needle.
+bool is_protected_class(const WmClass& wm, std::string& reason) {
   auto hit = [&](const char* needle, const char* why) {
-    if (n.find(needle) != std::string::npos || c.find(needle) != std::string::npos) {
+    if (iequals(wm.res_name, needle) || iequals(wm.res_class, needle)) {
       reason = why;
       return true;
     }
@@ -71,6 +83,23 @@ bool is_protected_name(const std::string& name, const std::string& wm_class,
   if (hit("polkit", "System service")) return true;
   return false;
 }
+
+// Swallow async X errors (BadWindow when a client dies mid-refresh) so GDK's
+// default handler does not fatal-exit. Pop syncs before the trap is lifted.
+class X11ErrorTrap {
+ public:
+  explicit X11ErrorTrap(GdkDisplay* display) : display_(display) {
+    if (display_) gdk_x11_display_error_trap_push(display_);
+  }
+  ~X11ErrorTrap() {
+    if (display_) gdk_x11_display_error_trap_pop_ignored(display_);
+  }
+  X11ErrorTrap(const X11ErrorTrap&) = delete;
+  X11ErrorTrap& operator=(const X11ErrorTrap&) = delete;
+
+ private:
+  GdkDisplay* display_ = nullptr;
+};
 
 Glib::RefPtr<Gdk::Pixbuf> pixbuf_from_net_wm_icon(Display* dpy, Window w) {
   Atom net_wm_icon = XInternAtom(dpy, "_NET_WM_ICON", False);
@@ -157,20 +186,17 @@ std::string get_window_title(Display* dpy, Window w) {
   return {};
 }
 
-std::string get_wm_class(Display* dpy, Window w) {
+WmClass get_wm_class(Display* dpy, Window w) {
+  WmClass wm;
   XClassHint hint;
+  std::memset(&hint, 0, sizeof(hint));
   if (XGetClassHint(dpy, w, &hint)) {
-    std::string s;
-    if (hint.res_name) s = hint.res_name;
-    if (hint.res_class) {
-      if (!s.empty()) s += " ";
-      s += hint.res_class;
-    }
+    if (hint.res_name) wm.res_name = hint.res_name;
+    if (hint.res_class) wm.res_class = hint.res_class;
     if (hint.res_name) XFree(hint.res_name);
     if (hint.res_class) XFree(hint.res_class);
-    return s;
   }
-  return {};
+  return wm;
 }
 
 pid_t get_net_wm_pid(Display* dpy, Window w) {
@@ -280,6 +306,11 @@ std::vector<AppEntry> enumerate_graphical_apps(pid_t self_pid) {
   Display* dpy = GDK_DISPLAY_XDISPLAY(gdk_display);
   Window root = DefaultRootWindow(dpy);
 
+  // Covers raw XGetWindowProperty / XGetWMName / XGetClassHint below. A window
+  // that closes during this pass must not abort the process, and the windows
+  // that are still alive must still be listed.
+  X11ErrorTrap trap(gdk_display);
+
   std::vector<Window> clients;
   collect_clients(dpy, root, clients);
 
@@ -288,39 +319,41 @@ std::vector<AppEntry> enumerate_graphical_apps(pid_t self_pid) {
   for (Window w : clients) {
     if (is_skip_taskbar_or_desktop(dpy, w)) continue;
 
-    pid_t pid = get_net_wm_pid(dpy, w);
-    if (pid <= 0) continue;
-    if (seen_pids.count(pid)) continue;
-    seen_pids.insert(pid);
+    // pid <= 0 means the window has no _NET_WM_PID. Do not invent one.
+    const pid_t pid = get_net_wm_pid(dpy, w);
+    const bool has_pid = pid > 1;
+    if (has_pid) {
+      if (pid == self_pid) continue;
+      if (!seen_pids.insert(pid).second) continue;
+    }
 
-    std::string title = get_window_title(dpy, w);
-    std::string wm_class = get_wm_class(dpy, w);
+    const std::string title = get_window_title(dpy, w);
+    const WmClass wm = get_wm_class(dpy, w);
+
+    // Keep the real title, including long UTF-8 names. The row label ellipsizes.
     std::string name = title;
+    if (name.empty() && has_pid) name = read_proc_comm(pid);
+    if (name.empty()) name = wm.res_name;
+    if (name.empty()) name = wm.res_class;
     if (name.empty()) {
-      name = read_proc_comm(pid);
+      // Nothing to show, and no real PID to attach. Skip it.
+      if (!has_pid) continue;
+      name = "pid " + std::to_string(pid);
     }
-    // Prefer shorter friendly name from WM_CLASS res_name if title is long path-ish
-    if (!wm_class.empty()) {
-      auto sp = wm_class.find(' ');
-      std::string res_name = sp == std::string::npos ? wm_class : wm_class.substr(0, sp);
-      if (name.empty() || name.size() > 48) name = res_name;
-    }
-    if (name.empty()) name = "pid " + std::to_string(pid);
 
     AppEntry e;
     e.name = name;
-    e.pid = pid;
-    e.rss_kb = read_proc_kb(pid, "RssAnon:");
-    e.vsize_kb = read_proc_kb(pid, "VmSize:");
-    if (e.vsize_kb < e.rss_kb) e.vsize_kb = e.rss_kb;
+    e.pid = has_pid ? pid : 0;
+    if (has_pid) {
+      e.rss_kb = read_proc_kb(pid, "RssAnon:");
+      e.vsize_kb = read_proc_kb(pid, "VmSize:");
+      if (e.vsize_kb < e.rss_kb) e.vsize_kb = e.rss_kb;
+    }
     e.icon = pixbuf_from_net_wm_icon(dpy, w);
     e.xid = static_cast<unsigned long>(w);
 
-    // Never list About This Computer itself in the running-apps list.
-    if (pid == self_pid) continue;
-
     std::string reason;
-    if (is_protected_name(name, wm_class, reason)) {
+    if (is_protected_class(wm, reason)) {
       e.protected_app = true;
       e.protect_reason = reason.empty() ? "Protected" : reason;
     }
@@ -328,8 +361,12 @@ std::vector<AppEntry> enumerate_graphical_apps(pid_t self_pid) {
     result.push_back(std::move(e));
   }
 
-  std::sort(result.begin(), result.end(),
-            [](const AppEntry& a, const AppEntry& b) { return a.rss_kb > b.rss_kb; });
+  std::stable_sort(result.begin(), result.end(),
+                   [](const AppEntry& a, const AppEntry& b) {
+                     if (a.rss_kb != b.rss_kb) return a.rss_kb > b.rss_kb;
+                     if (a.pid != b.pid) return a.pid < b.pid;
+                     return a.xid < b.xid;
+                   });
   return result;
 }
 

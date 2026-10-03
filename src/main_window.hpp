@@ -6,7 +6,12 @@
 #include "window_enum.hpp"
 
 #include <gtkmm.h>
+#include <string>
 #include <vector>
+
+namespace lundukeabout {
+class AppRow;
+}
 
 namespace lundukeabout {
 
@@ -67,7 +72,16 @@ private:
   Glib::RefPtr<Gdk::Pixbuf> load_lcos_system_icon() const;
   void on_force_close(const AppEntry& entry);
   bool on_refresh_tick();
+  bool entry_still_listed(const AppEntry& entry) const;
   std::string find_data_file(const std::string& relative) const;
+
+  struct AppListItem {
+    std::string key;
+    AppRow* row = nullptr;
+    Gtk::Separator* sep = nullptr;
+  };
+  AppEntry make_system_entry(long system_kb);
+  void sync_app_rows(const std::vector<AppEntry>& apps, bool allow_structure);
 
   SystemInfo info_;
   Gtk::Box root_{Gtk::ORIENTATION_VERTICAL, 0};
@@ -86,6 +100,12 @@ private:
   MemoryBar ram_bar_;
   Gtk::ScrolledWindow list_scroll_;
   Gtk::Box list_box_{Gtk::ORIENTATION_VERTICAL, 0};
+  std::vector<AppListItem> app_rows_;
+  AppRow* system_row_ = nullptr;
+  Glib::RefPtr<Gdk::Pixbuf> system_icon_;
+  // Nested dialog: do not destroy rows while a Force Close menu callback
+  // is still on the stack.
+  int force_close_depth_ = 0;
   Glib::RefPtr<Gtk::CssProvider> css_;
   sigc::connection refresh_conn_;
 };
