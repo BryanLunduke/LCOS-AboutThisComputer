@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
+#include "about_logic.hpp"
+
 #include <gdkmm.h>
 #include <memory>
 #include <string>
@@ -20,6 +22,12 @@ struct AppEntry {
   bool protected_app = false;
   std::string protect_reason;
   unsigned long xid = 0;
+  // Refresh-time /proc identity. Force Close signals this comm + starttime.
+  std::string comm;
+  unsigned long long start_ticks = 0;
+  bool identity_ok = false;
+  // Root and descendants whose RssAnon is included in rss_kb.
+  std::vector<ProcPin> kill_pins;
 };
 
 // One refresh of the client list, performed in short slices so the GTK

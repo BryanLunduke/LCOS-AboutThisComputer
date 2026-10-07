@@ -6,6 +6,7 @@
 #include "window_enum.hpp"
 
 #include <gtkmm.h>
+#include <chrono>
 #include <memory>
 #include <string>
 #include <vector>
@@ -76,6 +77,9 @@ private:
   void update_ram_bar();
   Glib::RefPtr<Gdk::Pixbuf> load_lcos_system_icon() const;
   void on_force_close(const AppEntry& entry);
+  void arm_force_close_refresh();
+  bool signal_pinned_pid(pid_t pid, unsigned long long expected_start, bool other_row,
+                         bool require_comm, const std::string& expected_comm, std::string& why);
   bool on_refresh_tick();
   void on_mapped();
   void on_unmapped();
@@ -95,7 +99,7 @@ private:
     AppRow* row = nullptr;
     Gtk::Separator* sep = nullptr;
   };
-  AppEntry make_system_entry(long system_kb);
+  AppEntry make_system_entry(long system_kb, const std::string& tooltip);
   void sync_app_rows(const std::vector<AppEntry>& apps, bool allow_structure);
 
   SystemInfo info_;
@@ -108,6 +112,7 @@ private:
   Gtk::Label supporters_blank_;
   SupportersNamesView supporters_names_view_;
   bool supporters_cap_update_queued_ = false;
+  bool alive_ = true;
   Gtk::Label os_label_;
   Gtk::Label mem_label_;
   Gtk::Label cpu_label_;
@@ -126,10 +131,14 @@ private:
   sigc::connection probe_conn_;
   sigc::connection scroll_restore_conn_;
   sigc::connection scroll_idle_conn_;
+  sigc::connection supporters_idle_conn_;
+  sigc::connection force_close_refresh_conn_;
   std::unique_ptr<AppListRefresh> probe_;
   bool iconified_ = false;
   bool refresh_running_ = false;
-  bool refresh_queued_ = false;
+  // Set only by an explicit Force Close refresh, never by the 3s timer.
+  bool refresh_followup_ = false;
+  std::chrono::steady_clock::time_point last_snapshot_{};
   bool pending_scroll_restore_ = false;
   double pending_scroll_ = 0.0;
 };

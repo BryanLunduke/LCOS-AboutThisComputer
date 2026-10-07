@@ -178,14 +178,21 @@ int main() {
   }
 
   // Group by PID. Active window wins. Splash is not the representative.
-  // A protected class on another window of the PID still protects the row.
+  // A foreign WM_CLASS does not protect a pid whose comm is something else.
+  // The real window manager is protected by its comm.
   {
     WindowFact main = fact(1, 10, true, WindowKind::Normal);
     main.res_class = "Firefox";
     main.title = "xfwm4 docs";
     main.has_icon = true;
+    main.comm = "firefox";
+    main.identity_ok = true;
+    main.start_ticks = 50;
     WindowFact splash = fact(2, 10, true, WindowKind::Splash);
     splash.res_class = "xfwm4";
+    splash.comm = "firefox";
+    splash.identity_ok = true;
+    splash.start_ticks = 50;
     splash.active = true;
     splash.title = "Splash";
     const auto grouped = group_windows({main, splash});
@@ -194,6 +201,20 @@ int main() {
       CHECK(grouped[0].xid == 1);
       CHECK(grouped[0].name == "Firefox");
       CHECK(grouped[0].tooltip == "xfwm4 docs");
+      CHECK(grouped[0].protected_app == false);
+      CHECK(grouped[0].comm == "firefox");
+      CHECK(grouped[0].start_ticks == 50);
+      CHECK(grouped[0].identity_ok);
+    }
+  }
+  {
+    WindowFact main = fact(1, 10, true, WindowKind::Normal);
+    main.res_class = "Firefox";
+    main.comm = "xfwm4";
+    main.identity_ok = true;
+    const auto grouped = group_windows({main});
+    CHECK(grouped.size() == 1);
+    if (!grouped.empty()) {
       CHECK(grouped[0].protected_app);
       CHECK(grouped[0].protect_reason == "Window manager");
     }
@@ -249,7 +270,7 @@ int main() {
     if (!grouped.empty()) CHECK(grouped[0].xid == 2);
   }
   {
-    CHECK(group_windows({fact(1, 8, true, WindowKind::Utility)}).empty());
+    CHECK(group_windows({fact(1, 8, true, WindowKind::Utility)}).size() == 1);
     CHECK(group_windows({fact(1, 8, true, WindowKind::Menu)}).empty());
     CHECK(group_windows({fact(1, 8, true, WindowKind::Tooltip)}).empty());
     CHECK(group_windows({fact(1, 8, true, WindowKind::Notification)}).empty());
@@ -366,6 +387,228 @@ int main() {
     const std::string raw = gpu_label_from_devices(unknown, db);
     CHECK(raw.find("PCI 0x1234:0xabcd") != std::string::npos);
     CHECK(raw.find("bochs-drm") != std::string::npos);
+  }
+
+  // Finding 1: format 8 must not be indexed as Atom[].
+  CHECK(x_property_indexable_as_longs(8, true, 128, 129) == false);
+  CHECK(x_property_indexable_as_longs(16, true, 4, 1024) == false);
+  CHECK(x_property_indexable_as_longs(32, false, 1, sizeof(unsigned long)) == false);
+  CHECK(x_property_indexable_as_longs(32, true, 1, sizeof(unsigned long)));
+  CHECK(x_property_indexable_as_longs(32, true, 2, sizeof(unsigned long)) == false);
+  CHECK(x_property_utf8_copy_bytes(32, true, 4, 32) == 0);
+  CHECK(x_property_utf8_copy_bytes(8, false, 4, 5) == 0);
+  CHECK(x_property_utf8_copy_bytes(8, true, 4, 3) == 3);
+  CHECK(x_property_utf8_copy_bytes(8, true, 4, 5) == 4);
+
+  // Finding 4: refresh comm + starttime mismatches a recycled pid.
+  {
+    ProcSnapshot pinned;
+    pinned.ok = true;
+    pinned.comm = "firefox";
+    pinned.start_ticks = 100;
+    ProcSnapshot same = pinned;
+    ProcSnapshot recycled = pinned;
+    recycled.start_ticks = 200;
+    ProcSnapshot renamed = pinned;
+    renamed.comm = "bash";
+    ProcSnapshot dead;
+    CHECK(proc_identity_matches(pinned, same));
+    CHECK(proc_identity_matches(pinned, recycled) == false);
+    CHECK(proc_identity_matches(pinned, renamed) == false);
+    CHECK(proc_identity_matches(pinned, dead) == false);
+    CHECK(may_signal_pinned_pid(42, 7, 100, true, 100, false));
+    CHECK(may_signal_pinned_pid(42, 7, 100, true, 200, false) == false);
+    CHECK(may_signal_pinned_pid(42, 7, 100, false, 100, false) == false);
+    CHECK(may_signal_pinned_pid(42, 42, 100, true, 100, false) == false);
+    CHECK(may_signal_pinned_pid(42, 7, 100, true, 100, true) == false);
+    CHECK(may_signal_pinned_pid(1, 7, 100, true, 100, false) == false);
+  }
+  {
+    const std::string stat = "42 (firefox) S 1 42 42 0 0 0 0 0 0 0 0 0 0 0 20 0 1 0 100 0 0";
+    const ProcSnapshot parsed = parse_proc_stat_line(stat);
+    CHECK(parsed.ok);
+    CHECK(parsed.comm == "firefox");
+    CHECK(parsed.start_ticks == 100);
+    CHECK(parse_proc_stat_line("nope").ok == false);
+  }
+
+  // Finding 7: skip-taskbar-only and dock-only still produce a row.
+  {
+    WindowFact dock = fact(5, 42, true, WindowKind::DesktopOrDock);
+    dock.res_class = "xfce4-panel";
+    dock.comm = "xfce4-panel";
+    dock.identity_ok = true;
+    const auto grouped = group_windows({dock});
+    CHECK(grouped.size() == 1);
+    if (!grouped.empty()) {
+      CHECK(grouped[0].name == "xfce4-panel");
+      CHECK(grouped[0].protected_app);
+      CHECK(grouped[0].protect_reason == "Desktop panel");
+    }
+    WindowFact skip = fact(6, 43, true, WindowKind::SkipTaskbar);
+    skip.res_class = "Discord";
+    skip.comm = "Discord";
+    skip.identity_ok = true;
+    const auto tray = group_windows({skip});
+    CHECK(tray.size() == 1);
+    if (!tray.empty()) {
+      CHECK(tray[0].name == "Discord");
+      CHECK(tray[0].protected_app == false);
+      CHECK(tray[0].pid == 43);
+    }
+    WindowFact normal = fact(1, 43, true, WindowKind::Normal);
+    normal.res_class = "Discord";
+    const auto prefer = group_windows({skip, normal});
+    CHECK(prefer.size() == 1);
+    if (!prefer.empty()) CHECK(prefer[0].xid == 1);
+    std::string why;
+    WindowFact foreign = fact(9, 99, true, WindowKind::Normal);
+    foreign.res_class = "xfwm4";
+    foreign.comm = "firefox";
+    CHECK(window_marks_protected(foreign, why) == false);
+  }
+
+  // Finding 9: a chunk that ends mid-frame skips to a following 32px frame.
+  {
+    constexpr unsigned long big_w = 384;
+    constexpr unsigned long big_h = 384;
+    constexpr unsigned long big_step = big_w * big_h + 2;
+    constexpr unsigned long small_at = big_step;
+    constexpr unsigned long total = big_step + 2 + 32;
+    struct Sparse {
+      unsigned long small_at;
+    } sparse{small_at};
+    auto read = [](void* ctx, unsigned long index, unsigned long& word) -> bool {
+      const auto* s = static_cast<const Sparse*>(ctx);
+      if (index == 0) {
+        word = 384;
+        return true;
+      }
+      if (index == 1) {
+        word = 384;
+        return true;
+      }
+      if (index == s->small_at) {
+        word = 32;
+        return true;
+      }
+      if (index == s->small_at + 1) {
+        word = 1;
+        return true;
+      }
+      return false;
+    };
+    const auto choice = choose_net_wm_icon_chunked(total, read, &sparse);
+    CHECK(choice.has_value());
+    if (choice) {
+      CHECK(choice->width == 32);
+      CHECK(choice->height == 1);
+      CHECK(choice->pixel_offset == small_at + 2);
+    }
+    const unsigned long only_big[] = {300, 1, 0};
+    CHECK(!choose_net_wm_icon(only_big, 3));
+  }
+
+  // Finding 12: an empty client-list page does not advance.
+  {
+    long next = 99;
+    CHECK(client_list_advance(0, 0, 4, kMaxClientIds, next) == false);
+    CHECK(next == 0);
+    CHECK(client_list_advance(0, 0, 1, kMaxClientIds, next) == false);
+  }
+
+  // Parent cycle terminates, and each pid is summed once.
+  {
+    std::unordered_map<pid_t, long> rss{{1, 10}, {2, 20}};
+    std::unordered_map<pid_t, std::vector<pid_t>> children{{1, {2}}, {2, {1}}};
+    CHECK(rollup_rss_anon(1, rss, children, {}) == 30);
+    CHECK(rollup_rss_anon(1, rss, children, {2}) == 10);
+    std::unordered_map<pid_t, unsigned long long> starts{{10, 10}, {11, 20}, {12, 30}};
+    std::unordered_map<pid_t, long> rss3{{10, 10}, {11, 20}, {12, 5}};
+    std::unordered_map<pid_t, std::vector<pid_t>> tree{{10, {12}}, {11, {12}}};
+    const auto pins = collect_kill_pins(10, rss3, starts, tree, {10, 11});
+    bool saw_child = false;
+    bool saw_other_row = false;
+    for (const auto& pin : pins) {
+      if (pin.pid == 12) saw_child = true;
+      if (pin.pid == 11) saw_other_row = true;
+    }
+    CHECK(saw_child);
+    CHECK(saw_other_row == false);
+    std::vector<ProcPin> overlap = pins;
+    overlap.push_back(ProcPin{12, 30, 99});
+    CHECK(sum_rss_once(overlap) == sum_rss_once(pins));
+  }
+
+  // Finding 2: a posted menu keeps the row that left the snapshot.
+  CHECK(may_delete_row(false, true, false) == false);
+  CHECK(may_delete_row(false, false, true) == false);
+  CHECK(may_delete_row(true, false, false) == false);
+  CHECK(may_delete_row(false, false, false));
+  CHECK(may_delete_row(false, true, true) == false);
+
+  // Crawl stop clears the tick id and does not need remove_tick_callback.
+  CHECK(credits_on_tick(false, false) == CreditsTickResult::StopAndClearId);
+  CHECK(credits_on_tick(true, true) == CreditsTickResult::StopAndClearId);
+  CHECK(credits_on_tick(true, false) == CreditsTickResult::Continue);
+
+  // Finding 15: LONG_MIN formats, and a negative remainder is shown as 0.
+  {
+    const std::string min_text = format_memory_human(LONG_MIN);
+    CHECK(!min_text.empty());
+    CHECK(min_text[0] == '-');
+    CHECK(min_text.find("GB") != std::string::npos);
+    const SystemRemainder neg = system_remainder_kb(1000, 1500);
+    CHECK(neg.raw_kb == -500);
+    CHECK(neg.shown_kb == 0);
+    CHECK(neg.clamped);
+    const SystemRemainder pos = system_remainder_kb(2000, 500);
+    CHECK(pos.raw_kb == 1500);
+    CHECK(pos.shown_kb == 1500);
+    CHECK(pos.clamped == false);
+  }
+
+  // MemAvailable absent falls back; MemAvailable 0 is real.
+  {
+    std::istringstream absent(
+        "MemTotal:       1000 kB\n"
+        "MemFree:         100 kB\n"
+        "Buffers:          10 kB\n"
+        "Cached:           20 kB\n");
+    const MemoryUsage fallback = memory_usage_from_meminfo(parse_meminfo(absent));
+    CHECK(fallback.total_kb == 1000);
+    CHECK(fallback.available_kb == 130);
+    CHECK(fallback.used_kb == 870);
+    std::istringstream zero(
+        "MemTotal:       1000 kB\n"
+        "MemAvailable:      0 kB\n"
+        "MemFree:         100 kB\n"
+        "Buffers:          10 kB\n"
+        "Cached:           20 kB\n");
+    const MemoryUsage none = memory_usage_from_meminfo(parse_meminfo(zero));
+    CHECK(none.available_kb == 0);
+    CHECK(none.used_kb == 1000);
+  }
+
+  // Finding 13: a parsed host os-release is not replaced by a second stream.
+  {
+    std::istringstream host("PRETTY_NAME=\"Debian GNU/Linux\"\nNAME=Debian\nID=debian\n");
+    std::istringstream sample("PRETTY_NAME=\"LCOS 0.7\"\nNAME=LCOS\nID=lcos\n");
+    const OsRelease host_rel = parse_os_release(host);
+    const OsRelease sample_rel = parse_os_release(sample);
+    CHECK(host_rel.ok);
+    CHECK(host_rel.id == "debian");
+    CHECK(host_rel.pretty == "Debian GNU/Linux");
+    CHECK(sample_rel.id == "lcos");
+    CHECK(os_display_name(host_rel, sample_rel, true) == "Debian GNU/Linux");
+    CHECK(os_display_name(host_rel, sample_rel, false) == "Debian GNU/Linux");
+    OsRelease none;
+    CHECK(os_display_name(none, sample_rel, false) == "Unknown OS");
+    CHECK(os_display_name(none, sample_rel, true) == "LCOS 0.7");
+    std::istringstream odd("PRETTY_NAME=\"Computer Operating System\"\nID=lcos\n");
+    const OsRelease odd_rel = parse_os_release(odd);
+    CHECK(odd_rel.id == "lcos");
+    CHECK(os_display_name(odd_rel, sample_rel, true) == "Computer Operating System");
   }
 
   if (g_failures != 0) {

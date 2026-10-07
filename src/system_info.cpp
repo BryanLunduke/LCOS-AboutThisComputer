@@ -11,6 +11,10 @@
 #include <algorithm>
 #include <dirent.h>
 #include <cctype>
+#include <cerrno>
+#include <climits>
+#include <fcntl.h>
+#include <unistd.h>
 
 namespace lundukeabout {
 namespace {
@@ -30,21 +34,19 @@ std::string unquote(std::string s) {
   return s;
 }
 
-bool read_os_release(const std::string& path, std::string& pretty, std::string& name,
-                     std::string& version) {
-  std::ifstream in(path);
-  if (!in) return false;
-  std::string line;
-  while (std::getline(in, line)) {
-    auto eq = line.find('=');
-    if (eq == std::string::npos) continue;
-    auto key = line.substr(0, eq);
-    auto val = unquote(line.substr(eq + 1));
-    if (key == "PRETTY_NAME") pretty = val;
-    else if (key == "NAME") name = val;
-    else if (key == "VERSION") version = val;
+std::string read_fd_limited(int fd) {
+  std::string data;
+  char buf[4096];
+  while (data.size() < (1u << 20)) {
+    const ssize_t n = ::read(fd, buf, sizeof(buf));
+    if (n < 0) {
+      if (errno == EINTR) continue;
+      break;
+    }
+    if (n == 0) break;
+    data.append(buf, buf + n);
   }
-  return !pretty.empty() || !name.empty();
+  return data;
 }
 
 std::string read_cpu_model() {
@@ -70,15 +72,6 @@ std::string read_cpu_model() {
   return "Unknown CPU";
 }
 
-struct MemSnapshot {
-  bool saw_available = false;
-  long total = 0;
-  long available = 0;
-  long free_kb = 0;
-  long buffers = 0;
-  long cached = 0;
-};
-
 bool parse_meminfo_line(const std::string& line, std::string& key, long& value) {
   const auto colon = line.find(':');
   if (colon == std::string::npos) return false;
@@ -92,41 +85,14 @@ bool parse_meminfo_line(const std::string& line, std::string& key, long& value) 
   return true;
 }
 
-MemSnapshot read_mem_snapshot() {
-  MemSnapshot snap;
-  std::ifstream in("/proc/meminfo");
-  std::string line;
-  while (std::getline(in, line)) {
-    std::string key;
-    long value = 0;
-    if (!parse_meminfo_line(line, key, value)) continue;
-    if (key == "MemTotal:") {
-      snap.total = value;
-    } else if (key == "MemAvailable:") {
-      snap.available = value;
-      snap.saw_available = true;
-    } else if (key == "MemFree:") {
-      snap.free_kb = value;
-    } else if (key == "Buffers:") {
-      snap.buffers = value;
-    } else if (key == "Cached:") {
-      snap.cached = value;
-    }
-  }
-  return snap;
-}
-
 void apply_memory_fields(SystemInfo& info) {
-  const MemSnapshot snap = read_mem_snapshot();
-  info.total_memory_kb = snap.total;
-  // MemAvailable: 0 is real (nothing reclaimable). Only an absent field
-  // falls back to the older MemFree + Buffers + Cached estimate.
-  if (snap.saw_available) info.available_memory_kb = snap.available;
-  else info.available_memory_kb = snap.free_kb + snap.buffers + snap.cached;
-  if (info.available_memory_kb > info.total_memory_kb)
-    info.available_memory_kb = info.total_memory_kb;
-  info.used_memory_kb = info.total_memory_kb - info.available_memory_kb;
-  if (info.used_memory_kb < 0) info.used_memory_kb = 0;
+  MemInfoSnapshot snap;
+  std::ifstream in("/proc/meminfo");
+  if (in) snap = parse_meminfo(in);
+  const MemoryUsage usage = memory_usage_from_meminfo(snap);
+  info.total_memory_kb = usage.total_kb;
+  info.available_memory_kb = usage.available_kb;
+  info.used_memory_kb = usage.used_kb;
   info.total_memory = format_memory_human(info.total_memory_kb);
 }
 
@@ -242,48 +208,61 @@ std::string read_gpu() {
 
 enum class MemUnit { MbTenth, MbInt, GbTenth };
 
-MemUnit unit_for_kb(long long mag_kb) {
-  if (mag_kb < 0) mag_kb = -mag_kb;
-  if (mag_kb >= 1024LL * 1024LL) return MemUnit::GbTenth;
-  if (mag_kb >= 10LL * 1024LL) return MemUnit::MbInt;
+void split_magnitude(long long kb, bool& neg, unsigned long long& mag) {
+  if (kb >= 0) {
+    neg = false;
+    mag = static_cast<unsigned long long>(kb);
+    return;
+  }
+  neg = true;
+  if (kb == LLONG_MIN) mag = static_cast<unsigned long long>(LLONG_MAX) + 1ull;
+  else mag = static_cast<unsigned long long>(-kb);
+}
+
+MemUnit unit_for_mag(unsigned long long mag_kb) {
+  if (mag_kb >= 1024ull * 1024ull) return MemUnit::GbTenth;
+  if (mag_kb >= 10ull * 1024ull) return MemUnit::MbInt;
   return MemUnit::MbTenth;
 }
 
-long long round_units(long long kb, MemUnit unit) {
-  const long long sign = kb < 0 ? -1 : 1;
-  const long long mag = kb < 0 ? -kb : kb;
-  long long denom = 1024;
-  long long scale = 1;
+unsigned long long round_mag(unsigned long long mag, MemUnit unit) {
+  unsigned long long denom = 1024;
+  unsigned long long scale = 1;
   if (unit == MemUnit::GbTenth) {
-    denom = 1024LL * 1024LL;
+    denom = 1024ull * 1024ull;
     scale = 10;
   } else if (unit == MemUnit::MbTenth) {
     scale = 10;
   }
-  return sign * ((mag * scale + denom / 2) / denom);
+  const unsigned long long whole = mag / denom;
+  const unsigned long long rem = mag % denom;
+  return whole * scale + (rem * scale + denom / 2) / denom;
 }
 
-std::string format_units(long long units, MemUnit unit) {
-  const bool neg = units < 0;
-  const long long mag = neg ? -units : units;
+std::string format_units_unsigned(unsigned long long mag, MemUnit unit, bool neg) {
   const char* sign = neg ? "-" : "";
   char buf[64];
   if (unit == MemUnit::MbInt) {
-    std::snprintf(buf, sizeof(buf), "%s%lld MB", sign, mag);
+    std::snprintf(buf, sizeof(buf), "%s%llu MB", sign, mag);
   } else {
     const char* suffix = unit == MemUnit::GbTenth ? "GB" : "MB";
-    std::snprintf(buf, sizeof(buf), "%s%lld.%lld %s", sign, mag / 10, mag % 10, suffix);
+    std::snprintf(buf, sizeof(buf), "%s%llu.%llu %s", sign, mag / 10, mag % 10, suffix);
   }
   return buf;
 }
 
+std::string format_signed_kb(long kb) {
+  if (kb == 0) return "0 MB";
+  bool neg = false;
+  unsigned long long mag = 0;
+  split_magnitude(kb, neg, mag);
+  const MemUnit unit = unit_for_mag(mag);
+  return format_units_unsigned(round_mag(mag, unit), unit, neg);
+}
+
 }  // namespace
 
-std::string format_memory_human(long kb) {
-  if (kb == 0) return "0 MB";
-  const MemUnit unit = unit_for_kb(kb);
-  return format_units(round_units(kb, unit), unit);
-}
+std::string format_memory_human(long kb) { return format_signed_kb(kb); }
 
 MemoryReadout format_memory_readout(long used_kb, long total_kb) {
   MemoryReadout out;
@@ -291,49 +270,153 @@ MemoryReadout format_memory_readout(long used_kb, long total_kb) {
     out.total = out.used = out.free = "0 MB";
     return out;
   }
-  const MemUnit unit = unit_for_kb(total_kb);
-  const long long total_units = round_units(total_kb, unit);
-  const long long used_units = round_units(used_kb, unit);
-  out.total = format_units(total_units, unit);
-  out.used = format_units(used_units, unit);
-  out.free = format_units(total_units - used_units, unit);
+  bool total_neg = false;
+  unsigned long long total_mag = 0;
+  split_magnitude(total_kb, total_neg, total_mag);
+  const MemUnit unit = unit_for_mag(total_mag);
+  bool used_neg = false;
+  unsigned long long used_mag = 0;
+  split_magnitude(used_kb, used_neg, used_mag);
+  const unsigned long long total_units = round_mag(total_mag, unit);
+  const unsigned long long used_units = round_mag(used_mag, unit);
+  out.total = format_units_unsigned(total_units, unit, total_neg);
+  out.used = format_units_unsigned(used_units, unit, used_neg);
+  if (used_neg == total_neg) {
+    if (total_units >= used_units) {
+      out.free = format_units_unsigned(total_units - used_units, unit, total_neg);
+    } else {
+      out.free = format_units_unsigned(used_units - total_units, unit, !total_neg);
+    }
+  } else if (total_neg) {
+    out.free = format_units_unsigned(total_units + used_units, unit, true);
+  } else {
+    out.free = format_units_unsigned(total_units + used_units, unit, false);
+  }
   return out;
+}
+
+OsRelease parse_os_release(std::istream& in) {
+  OsRelease rel;
+  std::string line;
+  while (std::getline(in, line)) {
+    if (!line.empty() && line.back() == '\r') line.pop_back();
+    const auto eq = line.find('=');
+    if (eq == std::string::npos) continue;
+    const auto key = line.substr(0, eq);
+    const auto val = unquote(line.substr(eq + 1));
+    if (key == "PRETTY_NAME") rel.pretty = val;
+    else if (key == "NAME") rel.name = val;
+    else if (key == "VERSION") rel.version = val;
+    else if (key == "ID") rel.id = val;
+  }
+  rel.ok = !rel.pretty.empty() || !rel.name.empty() || !rel.id.empty();
+  return rel;
+}
+
+std::string os_display_name(const OsRelease& host, const OsRelease& fallback,
+                            bool allow_fallback) {
+  const auto format = [](const OsRelease& rel) {
+    if (!rel.pretty.empty()) return rel.pretty;
+    if (!rel.name.empty()) {
+      return rel.version.empty() ? rel.name : (rel.name + " " + rel.version);
+    }
+    if (!rel.id.empty()) return rel.id;
+    return std::string();
+  };
+  if (host.ok) {
+    const std::string text = format(host);
+    if (!text.empty()) return text;
+  }
+  if (allow_fallback && fallback.ok) {
+    const std::string text = format(fallback);
+    if (!text.empty()) return text;
+  }
+  return "Unknown OS";
+}
+
+MemInfoSnapshot parse_meminfo(std::istream& in) {
+  MemInfoSnapshot snap;
+  std::string line;
+  while (std::getline(in, line)) {
+    std::string key;
+    long value = 0;
+    if (!parse_meminfo_line(line, key, value)) continue;
+    if (key == "MemTotal:") snap.total_kb = value;
+    else if (key == "MemAvailable:") {
+      snap.available_kb = value;
+      snap.saw_available = true;
+    } else if (key == "MemFree:") snap.free_kb = value;
+    else if (key == "Buffers:") snap.buffers_kb = value;
+    else if (key == "Cached:") snap.cached_kb = value;
+  }
+  return snap;
+}
+
+MemoryUsage memory_usage_from_meminfo(const MemInfoSnapshot& snap) {
+  MemoryUsage usage;
+  usage.total_kb = snap.total_kb;
+  // MemAvailable: 0 is real (nothing reclaimable). Only an absent field
+  // falls back to the older MemFree + Buffers + Cached estimate.
+  if (snap.saw_available) usage.available_kb = snap.available_kb;
+  else usage.available_kb = snap.free_kb + snap.buffers_kb + snap.cached_kb;
+  if (usage.available_kb > usage.total_kb) usage.available_kb = usage.total_kb;
+  if (usage.available_kb < 0) usage.available_kb = 0;
+  usage.used_kb = usage.total_kb - usage.available_kb;
+  if (usage.used_kb < 0) usage.used_kb = 0;
+  return usage;
+}
+
+int open_proc_pid_dir(pid_t pid) {
+  if (pid <= 0) return -1;
+  const std::string path = "/proc/" + std::to_string(pid);
+  int fd = ::open(path.c_str(), O_PATH | O_DIRECTORY | O_CLOEXEC);
+  if (fd < 0) fd = ::open(path.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+  return fd;
+}
+
+ProcSnapshot read_proc_snapshot_at(int dirfd) {
+  ProcSnapshot id;
+  if (dirfd < 0) return id;
+  const int fd = ::openat(dirfd, "stat", O_RDONLY | O_CLOEXEC);
+  if (fd < 0) return id;
+  std::string text = read_fd_limited(fd);
+  ::close(fd);
+  const auto nl = text.find('\n');
+  if (nl != std::string::npos) text.resize(nl);
+  return parse_proc_stat_line(text);
+}
+
+ProcSnapshot read_proc_snapshot(pid_t pid) {
+  const int dirfd = open_proc_pid_dir(pid);
+  if (dirfd < 0) return {};
+  const ProcSnapshot id = read_proc_snapshot_at(dirfd);
+  ::close(dirfd);
+  return id;
 }
 
 SystemInfo gather_system_info() {
   SystemInfo info;
-  std::string pretty, name, version;
-
-  // Prefer live /etc/os-release; if not LCOS, try recipe sample for demo authenticity.
-  const char* sample =
-      "/workspace/lcos-live-07/config/includes.chroot/etc/os-release";
-
-  bool ok = read_os_release("/etc/os-release", pretty, name, version);
-  bool is_lcos = false;
-  if (ok) {
-    std::string lower = pretty + " " + name;
-    std::transform(lower.begin(), lower.end(), lower.begin(),
-                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    is_lcos = lower.find("lcos") != std::string::npos;
+  OsRelease host;
+  {
+    std::ifstream in("/etc/os-release");
+    if (in) host = parse_os_release(in);
   }
-
-  if (!is_lcos) {
-    std::string sp, sn, sv;
-    if (read_os_release(sample, sp, sn, sv)) {
-      pretty = sp;
-      name = sn;
-      version = sv;
-      is_lcos = true;
+  OsRelease fallback;
+  bool allow_fallback = false;
+  // A parsed /etc/os-release is the host. The recipe file is not compiled in.
+  // LUNDUKE_ABOUT_OS_RELEASE is a dev path used only when /etc did not parse.
+  if (!host.ok) {
+    if (const char* env = std::getenv("LUNDUKE_ABOUT_OS_RELEASE")) {
+      if (env[0] != '\0') {
+        std::ifstream in(env);
+        if (in) {
+          fallback = parse_os_release(in);
+          allow_fallback = true;
+        }
+      }
     }
   }
-
-  if (!pretty.empty()) {
-    info.os_pretty = pretty;
-  } else if (!name.empty()) {
-    info.os_pretty = version.empty() ? name : (name + " " + version);
-  } else {
-    info.os_pretty = "Unknown OS";
-  }
+  info.os_pretty = os_display_name(host, fallback, allow_fallback);
 
   apply_memory_fields(info);
   info.cpu_model = read_cpu_model();

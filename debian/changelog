@@ -1,3 +1,38 @@
+lunduke-about (0.9-3) unstable; urgency=medium
+
+  * X properties are indexed only when format is 32 and the type matches.
+    UTF8_STRING titles require format 8. A short buffer is not read as Atom[].
+  * An AppRow stays in the list while its Force Close menu is posted.
+    The supporters idle and the Force Close refresh timeout are disconnected
+    on window close.
+  * Force Close is pinned to the refresh-time command and start time, signals
+    with pidfd_send_signal when the kernel provides it, and re-checks start
+    time on every descendant. Other rows are not signalled. A skipped kill
+    shows an error. The dialog shows the command, and a foreign WM_CLASS
+    does not mark another process protected.
+  * Dock, desktop, utility, and skip-taskbar processes that have no Normal
+    window get a row so their RssAnon is subtracted from LCOS System.
+  * Oversized _NET_WM_ICON frames are skipped by offset. The icon cache
+    tracks pid and a property fingerprint, and a cleared icon returns to the
+    generic image.
+  * Each /proc sample is paired with starttime around the status read. A
+    recycled pid is dropped instead of inheriting another process's RAM.
+  * The 3s timer does not start another scan while one is running, and the
+    next scan waits until 3s after the last snapshot. Force Close may still
+    refresh once it finishes.
+  * An empty or missing _NET_CLIENT_LIST tries _NET_CLIENT_LIST_STACKING and
+    then a depth-capped walk to WM_STATE clients.
+  * LCOS System counts each RssAnon once and shows 0 when shared pages would
+    make the remainder negative. The unclamped figure stays in the tooltip.
+  * /etc/os-release is shown whenever it parses. The live-image recipe path
+    is not compiled in. GDK_BACKEND is left alone; a display that cannot be
+    opened prints the Needs X11 explanation.
+  * Logic tests cover property format, identity match, row removal, icon
+    chunks, meminfo, and os-release. The Debian build runs meson test.
+  * Meson project version remains 0.9.
+
+ -- LCOS <lcos@lunduke.com>  Wed, 07 Oct 2026 19:30:00 +0000
+
 lunduke-about (0.9-2) unstable; urgency=medium
 
   * Refresh the application list in short idle slices so the window stays

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "window_enum.hpp"
 #include "about_logic.hpp"
+#include "system_info.hpp"
 
 #include <gdk/gdkx.h>
 #include <X11/Xlib.h>
@@ -9,12 +10,17 @@
 
 #include <algorithm>
 #include <chrono>
+#include <climits>
 #include <cstring>
+#include <fcntl.h>
 #include <fstream>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <unistd.h>
 #include <dirent.h>
 #include <cctype>
+#include <cerrno>
 #include <cstdlib>
 
 namespace lundukeabout {
@@ -22,8 +28,50 @@ namespace {
 
 struct IconCacheEntry {
   bool known = false;
+  pid_t pid = -1;
+  bool present = false;
+  unsigned long long fingerprint = 0;
   Glib::RefPtr<Gdk::Pixbuf> pixbuf;
 };
+
+constexpr int kMaxWmTreeDepth = 6;
+
+unsigned long property_alloc_nbytes(int format, unsigned long nitems) {
+  if (format == 32) {
+    if (sizeof(unsigned long) == 0 || nitems > (ULONG_MAX - 1) / sizeof(unsigned long)) return 0;
+    return nitems * sizeof(unsigned long) + 1;
+  }
+  if (format == 16) {
+    if (nitems > (ULONG_MAX - 1) / 2) return 0;
+    return nitems * 2 + 1;
+  }
+  if (format == 8) {
+    if (nitems == ULONG_MAX) return 0;
+    return nitems + 1;
+  }
+  return 0;
+}
+
+unsigned long long fnv_mix(unsigned long long hash, unsigned long long value) {
+  hash ^= value;
+  hash *= 1099511628211ull;
+  return hash;
+}
+
+std::string read_fd_limited(int fd) {
+  std::string data;
+  char buf[4096];
+  while (data.size() < (1u << 20)) {
+    const ssize_t n = ::read(fd, buf, sizeof(buf));
+    if (n < 0) {
+      if (errno == EINTR) continue;
+      break;
+    }
+    if (n == 0) break;
+    data.append(buf, buf + n);
+  }
+  return data;
+}
 
 std::unordered_map<unsigned long, IconCacheEntry>& icon_cache() {
   static std::unordered_map<unsigned long, IconCacheEntry> cache;
@@ -48,14 +96,6 @@ long parse_status_number(const std::string& line) {
   }
 }
 
-std::string read_proc_comm(pid_t pid) {
-  std::ifstream in("/proc/" + std::to_string(pid) + "/comm");
-  std::string s;
-  std::getline(in, s);
-  if (!s.empty() && s.back() == '\n') s.pop_back();
-  return s;
-}
-
 class X11ErrorTrap {
  public:
   explicit X11ErrorTrap(GdkDisplay* display) : display_(display) {
@@ -71,84 +111,177 @@ class X11ErrorTrap {
   GdkDisplay* display_ = nullptr;
 };
 
-Glib::RefPtr<Gdk::Pixbuf> decode_net_wm_icon(Display* dpy, Window w) {
-  Atom net_wm_icon = XInternAtom(dpy, "_NET_WM_ICON", False);
+struct IconFetch {
+  Display* dpy = nullptr;
+  Window window = None;
+  Atom prop = None;
+  std::unordered_map<unsigned long, unsigned long> words;
+};
+
+bool read_cardinal_words(Display* dpy, Window window, Atom prop, unsigned long offset,
+                         unsigned long count, std::vector<unsigned long>& out,
+                         unsigned long* total_items) {
+  out.clear();
+  if (count == 0 || count > kNetWmIconMaxItems) return false;
   Atom actual_type = None;
   int actual_format = 0;
   unsigned long nitems = 0, bytes_after = 0;
   unsigned char* data = nullptr;
-  const long length = static_cast<long>(kNetWmIconMaxItems);
-
-  if (XGetWindowProperty(dpy, w, net_wm_icon, 0, length, False, XA_CARDINAL,
-                         &actual_type, &actual_format, &nitems, &bytes_after,
-                         &data) != Success ||
-      !data || nitems < 2 || actual_format != 32) {
+  const int rc = XGetWindowProperty(dpy, window, prop, static_cast<long>(offset),
+                                    static_cast<long>(count), False, XA_CARDINAL,
+                                    &actual_type, &actual_format, &nitems, &bytes_after,
+                                    &data);
+  if (rc != Success || !data) {
     if (data) XFree(data);
-    return {};
+    return false;
   }
-
-  auto* icons = reinterpret_cast<unsigned long*>(data);
-  const auto choice = choose_net_wm_icon(icons, nitems);
-  Glib::RefPtr<Gdk::Pixbuf> result;
-  try {
-    if (choice && choice->width > 0 && choice->height > 0 && choice->width < 512 &&
-        choice->height < 512) {
-      auto pb = Gdk::Pixbuf::create(Gdk::COLORSPACE_RGB, true, 8,
-                                    static_cast<int>(choice->width),
-                                    static_cast<int>(choice->height));
-      if (pb) {
-        auto* pixels = pb->get_pixels();
-        const int rowstride = pb->get_rowstride();
-        for (unsigned long y = 0; y < choice->height; ++y) {
-          for (unsigned long x = 0; x < choice->width; ++x) {
-            const unsigned long argb =
-                icons[choice->pixel_offset + y * choice->width + x];
-            guchar* p = pixels + y * rowstride + x * 4;
-            p[0] = (argb >> 16) & 0xff;
-            p[1] = (argb >> 8) & 0xff;
-            p[2] = argb & 0xff;
-            p[3] = (argb >> 24) & 0xff;
-          }
-        }
-        if (choice->width != 32 || choice->height != 32) {
-          result = pb->scale_simple(32, 32, Gdk::INTERP_BILINEAR);
-        } else {
-          result = pb;
-        }
-      }
-    }
-  } catch (...) {
+  const unsigned long alloc = property_alloc_nbytes(actual_format, nitems);
+  if (!x_property_indexable_as_longs(actual_format, actual_type == XA_CARDINAL, nitems,
+                                     alloc)) {
     XFree(data);
-    return {};
+    return false;
   }
+  auto* longs = reinterpret_cast<unsigned long*>(data);
+  out.assign(longs, longs + nitems);
+  if (total_items) *total_items = offset + nitems + bytes_after / 4;
   XFree(data);
-  return result;
+  return true;
 }
 
-Glib::RefPtr<Gdk::Pixbuf> cached_icon(Display* dpy, unsigned long xid) {
+bool fetch_icon_word(void* ctx, unsigned long index, unsigned long& word) {
+  auto* fetch = static_cast<IconFetch*>(ctx);
+  const auto found = fetch->words.find(index);
+  if (found != fetch->words.end()) {
+    word = found->second;
+    return true;
+  }
+  std::vector<unsigned long> got;
+  if (!read_cardinal_words(fetch->dpy, fetch->window, fetch->prop, index, 2, got, nullptr) ||
+      got.empty()) {
+    return false;
+  }
+  for (unsigned long i = 0; i < got.size(); ++i) fetch->words[index + i] = got[i];
+  const auto again = fetch->words.find(index);
+  if (again == fetch->words.end()) return false;
+  word = again->second;
+  return true;
+}
+
+bool icon_property_total(Display* dpy, Window window, Atom prop, unsigned long& total) {
+  Atom actual_type = None;
+  int actual_format = 0;
+  unsigned long nitems = 0, bytes_after = 0;
+  unsigned char* data = nullptr;
+  const int rc = XGetWindowProperty(dpy, window, prop, 0, 0, False, XA_CARDINAL,
+                                    &actual_type, &actual_format, &nitems, &bytes_after,
+                                    &data);
+  if (data) XFree(data);
+  if (rc != Success || actual_type != XA_CARDINAL || actual_format != 32) return false;
+  total = nitems + bytes_after / 4;
+  return true;
+}
+
+Glib::RefPtr<Gdk::Pixbuf> pixbuf_from_argb(const std::vector<unsigned long>& argb,
+                                           unsigned long width, unsigned long height) {
+  if (width == 0 || height == 0 || width >= 512 || height >= 512) return {};
+  if (argb.size() < width * height) return {};
+  try {
+    auto pb = Gdk::Pixbuf::create(Gdk::COLORSPACE_RGB, true, 8, static_cast<int>(width),
+                                  static_cast<int>(height));
+    if (!pb) return {};
+    auto* pixels = pb->get_pixels();
+    const int rowstride = pb->get_rowstride();
+    for (unsigned long y = 0; y < height; ++y) {
+      for (unsigned long x = 0; x < width; ++x) {
+        const unsigned long pixel = argb[y * width + x];
+        guchar* p = pixels + y * rowstride + x * 4;
+        p[0] = (pixel >> 16) & 0xff;
+        p[1] = (pixel >> 8) & 0xff;
+        p[2] = pixel & 0xff;
+        p[3] = (pixel >> 24) & 0xff;
+      }
+    }
+    if (width != 32 || height != 32) return pb->scale_simple(32, 32, Gdk::INTERP_BILINEAR);
+    return pb;
+  } catch (...) {
+    return {};
+  }
+}
+
+Glib::RefPtr<Gdk::Pixbuf> decode_net_wm_icon(Display* dpy, Window w) {
+  Atom net_wm_icon = XInternAtom(dpy, "_NET_WM_ICON", False);
+  unsigned long total = 0;
+  if (!icon_property_total(dpy, w, net_wm_icon, total) || total < 2) return {};
+  // One hostile property must not walk an unbounded CARD32 space.
+  constexpr unsigned long kMaxIconWords = 4ul * 1024ul * 1024ul;
+  if (total > kMaxIconWords) total = kMaxIconWords;
+
+  IconFetch fetch;
+  fetch.dpy = dpy;
+  fetch.window = w;
+  fetch.prop = net_wm_icon;
+  const auto choice = choose_net_wm_icon_chunked(total, fetch_icon_word, &fetch);
+  if (!choice || choice->width == 0 || choice->height == 0 ||
+      choice->width > kIconSelectMaxEdge || choice->height > kIconSelectMaxEdge ||
+      choice->width >= 512 || choice->height >= 512) {
+    return {};
+  }
+  const unsigned long pixels = choice->width * choice->height;
+  if (pixels == 0 || pixels > kNetWmIconMaxItems) return {};
+  std::vector<unsigned long> argb;
+  if (!read_cardinal_words(dpy, w, net_wm_icon, choice->pixel_offset, pixels, argb, nullptr)) {
+    return {};
+  }
+  return pixbuf_from_argb(argb, choice->width, choice->height);
+}
+
+struct IconStamp {
+  bool present = false;
+  unsigned long long fingerprint = 1;
+};
+
+IconStamp stamp_net_wm_icon(Display* dpy, Window w) {
+  IconStamp stamp;
+  Atom prop = XInternAtom(dpy, "_NET_WM_ICON", False);
+  unsigned long total = 0;
+  if (!icon_property_total(dpy, w, prop, total) || total == 0) return stamp;
+  stamp.present = true;
+  unsigned long long hash = 14695981039346656037ull;
+  hash = fnv_mix(hash, total);
+  auto mix = [&](unsigned long offset, unsigned long count) {
+    std::vector<unsigned long> words;
+    if (!read_cardinal_words(dpy, w, prop, offset, count, words, nullptr)) return;
+    for (unsigned long word : words) hash = fnv_mix(hash, word);
+  };
+  const unsigned long head = std::min(total, 32ul);
+  mix(0, head);
+  if (total > 32) {
+    const unsigned long tail = std::min(total, 32ul);
+    mix(total - tail, tail);
+  }
+  stamp.fingerprint = hash;
+  return stamp;
+}
+
+Glib::RefPtr<Gdk::Pixbuf> cached_icon(Display* dpy, unsigned long xid, pid_t pid) {
+  const IconStamp stamp = stamp_net_wm_icon(dpy, static_cast<Window>(xid));
   auto& slot = icon_cache()[xid];
-  if (slot.known) return slot.pixbuf;
-  slot.pixbuf = decode_net_wm_icon(dpy, static_cast<Window>(xid));
+  if (slot.known && slot.pid == pid && slot.present == stamp.present &&
+      slot.fingerprint == stamp.fingerprint) {
+    return slot.pixbuf;
+  }
   slot.known = true;
+  slot.pid = pid;
+  slot.present = stamp.present;
+  slot.fingerprint = stamp.fingerprint;
+  slot.pixbuf = stamp.present ? decode_net_wm_icon(dpy, static_cast<Window>(xid)) : Glib::RefPtr<Gdk::Pixbuf>{};
   return slot.pixbuf;
 }
 
 bool net_wm_icon_present(Display* dpy, Window w) {
-  const auto it = icon_cache().find(static_cast<unsigned long>(w));
-  if (it != icon_cache().end() && it->second.known) {
-    return static_cast<bool>(it->second.pixbuf);
-  }
-
   Atom net_wm_icon = XInternAtom(dpy, "_NET_WM_ICON", False);
-  Atom actual_type = None;
-  int actual_format = 0;
-  unsigned long nitems = 0, bytes_after = 0;
-  unsigned char* data = nullptr;
-  const int rc = XGetWindowProperty(dpy, w, net_wm_icon, 0, 0, False, XA_CARDINAL,
-                                    &actual_type, &actual_format, &nitems,
-                                    &bytes_after, &data);
-  if (data) XFree(data);
-  return rc == Success && actual_type == XA_CARDINAL && (nitems > 0 || bytes_after > 0);
+  unsigned long total = 0;
+  return icon_property_total(dpy, w, net_wm_icon, total) && total > 0;
 }
 
 std::string get_window_title(Display* dpy, Window w) {
@@ -162,9 +295,13 @@ std::string get_window_title(Display* dpy, Window w) {
   if (XGetWindowProperty(dpy, w, net_name, 0, 1024, False, utf8, &actual_type,
                          &actual_format, &nitems, &bytes_after, &data) == Success &&
       data && nitems > 0) {
-    std::string s(reinterpret_cast<char*>(data), nitems);
-    XFree(data);
-    return s;
+    const unsigned long copy = x_property_utf8_copy_bytes(
+        actual_format, actual_type == utf8, nitems, property_alloc_nbytes(actual_format, nitems));
+    if (copy > 0) {
+      std::string s(reinterpret_cast<char*>(data), static_cast<size_t>(copy));
+      XFree(data);
+      return s;
+    }
   }
   if (data) XFree(data);
 
@@ -205,8 +342,13 @@ pid_t get_net_wm_pid(Display* dpy, Window w) {
   pid_t pid = 0;
   if (XGetWindowProperty(dpy, w, atom, 0, 1, False, XA_CARDINAL, &actual_type,
                          &actual_format, &nitems, &bytes_after, &data) == Success &&
-      data && nitems >= 1) {
-    pid = static_cast<pid_t>(*reinterpret_cast<unsigned long*>(data));
+      data &&
+      x_property_indexable_as_longs(actual_format, actual_type == XA_CARDINAL, nitems,
+                                    property_alloc_nbytes(actual_format, nitems))) {
+    const unsigned long raw = *reinterpret_cast<unsigned long*>(data);
+    if (raw > 1 && raw <= static_cast<unsigned long>(INT_MAX)) {
+      pid = static_cast<pid_t>(raw);
+    }
   }
   if (data) XFree(data);
   return pid;
@@ -221,7 +363,9 @@ Window get_active_window(Display* dpy, Window root) {
   Window active = None;
   if (XGetWindowProperty(dpy, root, atom, 0, 1, False, XA_WINDOW, &actual_type,
                          &actual_format, &nitems, &bytes_after, &data) == Success &&
-      data && nitems >= 1) {
+      data &&
+      x_property_indexable_as_longs(actual_format, actual_type == XA_WINDOW, nitems,
+                                    property_alloc_nbytes(actual_format, nitems))) {
     active = *reinterpret_cast<Window*>(data);
   }
   if (data) XFree(data);
@@ -254,7 +398,9 @@ bool has_skip_taskbar(Display* dpy, Window w) {
   bool skip = false;
   if (XGetWindowProperty(dpy, w, state_atom, 0, 32, False, XA_ATOM, &actual_type,
                          &actual_format, &nitems, &bytes_after, &data) == Success &&
-      data && nitems > 0) {
+      data &&
+      x_property_indexable_as_longs(actual_format, actual_type == XA_ATOM, nitems,
+                                    property_alloc_nbytes(actual_format, nitems))) {
     auto* atoms = reinterpret_cast<Atom*>(data);
     for (unsigned long i = 0; i < nitems; ++i) {
       if (atoms[i] == skip_tb) skip = true;
@@ -283,7 +429,9 @@ WindowKind get_window_kind(Display* dpy, Window w) {
   WindowKind kind = WindowKind::Normal;
   if (XGetWindowProperty(dpy, w, type_atom, 0, 16, False, XA_ATOM, &actual_type,
                          &actual_format, &nitems, &bytes_after, &data) == Success &&
-      data && nitems > 0) {
+      data &&
+      x_property_indexable_as_longs(actual_format, actual_type == XA_ATOM, nitems,
+                                    property_alloc_nbytes(actual_format, nitems))) {
     auto* atoms = reinterpret_cast<Atom*>(data);
     for (unsigned long i = 0; i < nitems; ++i) {
       const Atom t = atoms[i];
@@ -330,8 +478,10 @@ struct AppListRefresh::Impl {
   bool step();
   void pump();
   void collect_page();
+  void begin_stacking_or_finish(bool allow_tree);
   void finish_collect(bool allow_tree);
   void query_tree();
+  void walk_clients(Window window, int depth);
   void inspect_one();
   void read_one_proc();
   void assemble();
@@ -341,6 +491,8 @@ struct AppListRefresh::Impl {
   bool display_ready_ = false;
   bool x11_ = false;
   bool tree_tried_ = false;
+  bool reading_stacking_ = false;
+  bool stacking_tried_ = false;
   GdkDisplay* gdk_ = nullptr;
   Display* dpy_ = nullptr;
   Window root_ = None;
@@ -350,10 +502,11 @@ struct AppListRefresh::Impl {
   std::vector<Window> clients_;
   size_t index_ = 0;
   std::vector<WindowFact> facts_;
-  std::unordered_map<pid_t, std::string> comms_;
+  std::unordered_map<pid_t, ProcSnapshot> comms_;
   std::vector<pid_t> proc_ids_;
   bool procs_listed_ = false;
   std::unordered_map<pid_t, long> rss_kb_;
+  std::unordered_map<pid_t, unsigned long long> start_ticks_;
   std::unordered_map<pid_t, std::vector<pid_t>> children_;
   std::vector<AppEntry> entries_;
   size_t icon_index_ = 0;
@@ -448,20 +601,52 @@ void AppListRefresh::Impl::finish_collect(bool allow_tree) {
   phase_ = Phase::Inspect;
 }
 
-void AppListRefresh::Impl::query_tree() {
-  tree_tried_ = true;
+void AppListRefresh::Impl::walk_clients(Window window, int depth) {
+  if (depth > kMaxWmTreeDepth) return;
+  if (static_cast<long>(clients_.size()) >= kMaxClientIds) return;
   Window rr = None, parent = None;
   Window* children = nullptr;
   unsigned int nchildren = 0;
-  if (!XQueryTree(dpy_, root_, &rr, &parent, &children, &nchildren)) return;
+  if (!XQueryTree(dpy_, window, &rr, &parent, &children, &nchildren)) return;
   for (unsigned int i = 0; i < nchildren; ++i) {
-    if (has_wm_state(dpy_, children[i])) clients_.push_back(children[i]);
+    if (static_cast<long>(clients_.size()) >= kMaxClientIds) break;
+    const Window child = children[i];
+    if (has_wm_state(dpy_, child)) {
+      clients_.push_back(child);
+      continue;
+    }
+    if (depth < kMaxWmTreeDepth) walk_clients(child, depth + 1);
   }
   if (children) XFree(children);
 }
 
+void AppListRefresh::Impl::query_tree() {
+  tree_tried_ = true;
+  walk_clients(root_, 0);
+}
+
+static bool client_page_usable(int rc, Atom actual_type, int actual_format, unsigned long nitems,
+                               unsigned char* data) {
+  if (rc != Success || actual_format != 32 || actual_type != XA_WINDOW) return false;
+  if (nitems == 0) return true;
+  return data && x_property_indexable_as_longs(actual_format, true, nitems,
+                                               property_alloc_nbytes(actual_format, nitems));
+}
+
+void AppListRefresh::Impl::begin_stacking_or_finish(bool allow_tree) {
+  if (!reading_stacking_ && !stacking_tried_ && clients_.empty()) {
+    reading_stacking_ = true;
+    stacking_tried_ = true;
+    client_offset_ = 0;
+    return;
+  }
+  finish_collect(allow_tree && clients_.empty());
+}
+
 void AppListRefresh::Impl::collect_page() {
-  Atom client_list = XInternAtom(dpy_, "_NET_CLIENT_LIST", False);
+  const char* atom_name =
+      reading_stacking_ ? "_NET_CLIENT_LIST_STACKING" : "_NET_CLIENT_LIST";
+  Atom client_list = XInternAtom(dpy_, atom_name, False);
   Atom actual_type = None;
   int actual_format = 0;
   unsigned long nitems = 0, bytes_after = 0;
@@ -469,9 +654,9 @@ void AppListRefresh::Impl::collect_page() {
   const int rc =
       XGetWindowProperty(dpy_, root_, client_list, client_offset_, 1024, False, XA_WINDOW,
                          &actual_type, &actual_format, &nitems, &bytes_after, &data);
-  if (rc != Success || actual_type != XA_WINDOW) {
+  if (!client_page_usable(rc, actual_type, actual_format, nitems, data)) {
     if (data) XFree(data);
-    finish_collect(true);
+    begin_stacking_or_finish(true);
     return;
   }
   if (data && nitems > 0) {
@@ -489,7 +674,7 @@ void AppListRefresh::Impl::collect_page() {
   }
   long next = client_offset_;
   if (!client_list_advance(client_offset_, nitems, bytes_after, kMaxClientIds, next)) {
-    finish_collect(clients_.empty());
+    begin_stacking_or_finish(true);
     return;
   }
   client_offset_ = next;
@@ -513,11 +698,17 @@ void AppListRefresh::Impl::inspect_one() {
   fact.res_class = wm.res_class;
   if (fact.has_pid) {
     const auto it = comms_.find(pid);
+    ProcSnapshot id;
     if (it == comms_.end()) {
-      fact.comm = read_proc_comm(pid);
-      comms_.emplace(pid, fact.comm);
+      id = read_proc_snapshot(pid);
+      comms_.emplace(pid, id);
     } else {
-      fact.comm = it->second;
+      id = it->second;
+    }
+    if (id.ok) {
+      fact.comm = id.comm;
+      fact.start_ticks = id.start_ticks;
+      fact.identity_ok = true;
     }
   }
   if (fact.kind == WindowKind::Normal) fact.has_icon = net_wm_icon_present(dpy_, w);
@@ -526,20 +717,47 @@ void AppListRefresh::Impl::inspect_one() {
 
 void AppListRefresh::Impl::read_one_proc() {
   const pid_t pid = proc_ids_[index_++];
-  std::ifstream in("/proc/" + std::to_string(pid) + "/status");
-  if (!in) return;
-  std::string line;
+  const int dirfd = open_proc_pid_dir(pid);
+  if (dirfd < 0) {
+    rss_kb_.erase(pid);
+    start_ticks_.erase(pid);
+    return;
+  }
+  const ProcSnapshot before = read_proc_snapshot_at(dirfd);
   pid_t ppid = 0;
   long rss = 0;
-  while (std::getline(in, line)) {
-    if (line.compare(0, 5, "PPid:") == 0) {
-      ppid = static_cast<pid_t>(parse_status_number(line));
-    } else if (line.compare(0, 8, "RssAnon:") == 0) {
-      rss = parse_status_number(line);
+  bool saw_status = false;
+  const int status_fd = ::openat(dirfd, "status", O_RDONLY | O_CLOEXEC);
+  if (status_fd >= 0) {
+    const std::string text = read_fd_limited(status_fd);
+    ::close(status_fd);
+    saw_status = true;
+    std::string line;
+    for (size_t i = 0; i <= text.size(); ++i) {
+      if (i == text.size() || text[i] == '\n') {
+        if (line.compare(0, 5, "PPid:") == 0) {
+          ppid = static_cast<pid_t>(parse_status_number(line));
+        } else if (line.compare(0, 8, "RssAnon:") == 0) {
+          rss = parse_status_number(line);
+        }
+        line.clear();
+      } else {
+        line.push_back(text[i]);
+      }
     }
   }
-  // Missing RssAnon (kernel threads) stays 0. One status read per process.
+  const ProcSnapshot after = read_proc_snapshot_at(dirfd);
+  ::close(dirfd);
+  // The pid was recycled between the two stat reads, or status never opened.
+  // Drop it so the row shows an em dash instead of the new process's RAM.
+  if (!saw_status || !before.ok || !after.ok || before.comm != after.comm ||
+      before.start_ticks != after.start_ticks) {
+    rss_kb_.erase(pid);
+    start_ticks_.erase(pid);
+    return;
+  }
   rss_kb_[pid] = rss;
+  start_ticks_[pid] = before.start_ticks;
   if (ppid > 0 && ppid != pid) children_[ppid].push_back(pid);
 }
 
@@ -559,9 +777,25 @@ void AppListRefresh::Impl::assemble() {
     entry.xid = g.xid;
     entry.protected_app = g.protected_app;
     entry.protect_reason = g.protect_reason;
-    if (g.has_pid) {
-      entry.rss_known = true;
-      entry.rss_kb = rollup_rss_anon(g.pid, rss_kb_, children_, row_pids);
+    entry.comm = g.comm;
+    entry.start_ticks = g.start_ticks;
+    entry.identity_ok = g.identity_ok;
+    if (g.has_pid && g.identity_ok) {
+      const auto start = start_ticks_.find(g.pid);
+      if (start == start_ticks_.end() || start->second != g.start_ticks) {
+        // Inspect and the proc slice disagree: the pid was reused.
+        entry.identity_ok = false;
+        entry.rss_known = false;
+        entry.rss_kb = 0;
+      } else {
+        entry.kill_pins =
+            collect_kill_pins(g.pid, rss_kb_, start_ticks_, children_, row_pids);
+        const long long sum = sum_rss_once(entry.kill_pins);
+        if (sum > LONG_MAX) entry.rss_kb = LONG_MAX;
+        else if (sum < LONG_MIN) entry.rss_kb = LONG_MIN;
+        else entry.rss_kb = static_cast<long>(sum);
+        entry.rss_known = true;
+      }
     }
     entries_.push_back(std::move(entry));
   }
@@ -580,7 +814,7 @@ void AppListRefresh::Impl::assemble() {
 void AppListRefresh::Impl::load_one_icon() {
   AppEntry& entry = entries_[icon_index_++];
   if (entry.xid == 0) return;
-  entry.icon = cached_icon(dpy_, entry.xid);
+  entry.icon = cached_icon(dpy_, entry.xid, entry.pid);
 }
 
 AppListRefresh::AppListRefresh(pid_t self_pid) : impl_(std::make_unique<Impl>(self_pid)) {}

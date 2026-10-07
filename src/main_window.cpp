@@ -8,6 +8,7 @@
 #include <sstream>
 #include <iostream>
 #include <algorithm>
+#include <cctype>
 #include <map>
 #include <set>
 #include <climits>
@@ -16,6 +17,8 @@
 #include <sys/types.h>
 #include <cerrno>
 #include <cstring>
+#include <fcntl.h>
+#include <sys/syscall.h>
 
 namespace lundukeabout {
 namespace {
@@ -108,38 +111,41 @@ std::string app_key(const AppEntry& entry) {
   return "xid:" + std::to_string(entry.xid);
 }
 
-struct ProcIdentity {
-  bool ok = false;
-  std::string comm;
-  unsigned long long start_ticks = 0;
-};
+int open_pidfd(pid_t pid) {
+#if defined(SYS_pidfd_open)
+  return static_cast<int>(::syscall(SYS_pidfd_open, pid, 0));
+#else
+  errno = ENOSYS;
+  return -1;
+#endif
+}
 
-// /proc/<pid>/stat: pid (comm) state ... starttime is field 22.
-// comm is everything between the first '(' and the last ')'.
-ProcIdentity read_proc_identity(pid_t pid) {
-  ProcIdentity id;
-  if (pid <= 1) return id;
-  std::ifstream in("/proc/" + std::to_string(pid) + "/stat");
-  std::string stat;
-  if (!std::getline(in, stat)) return id;
-  const auto lparen = stat.find('(');
-  const auto rparen = stat.rfind(')');
-  if (lparen == std::string::npos || rparen == std::string::npos || rparen <= lparen) {
-    return id;
+int signal_pidfd(int pidfd, int sig) {
+#if defined(SYS_pidfd_send_signal)
+  return static_cast<int>(::syscall(SYS_pidfd_send_signal, pidfd, sig, nullptr, 0));
+#else
+  (void)pidfd;
+  (void)sig;
+  errno = ENOSYS;
+  return -1;
+#endif
+}
+
+bool same_display_name(const std::string& name, const std::string& comm) {
+  if (name.size() != comm.size()) return false;
+  for (size_t i = 0; i < name.size(); ++i) {
+    const unsigned char a = static_cast<unsigned char>(name[i]);
+    const unsigned char b = static_cast<unsigned char>(comm[i]);
+    if (std::tolower(a) != std::tolower(b)) return false;
   }
-  id.comm = stat.substr(lparen + 1, rparen - lparen - 1);
-  std::istringstream iss(stat.substr(rparen + 1));
-  std::string tok;
-  for (int field = 3; field <= 22; ++field) {
-    if (!(iss >> tok)) return id;
-  }
-  try {
-    id.start_ticks = std::stoull(tok);
-  } catch (...) {
-    return id;
-  }
-  id.ok = true;
-  return id;
+  return true;
+}
+
+void show_notice(Gtk::Window& parent, const std::string& text, const std::string& secondary) {
+  Gtk::MessageDialog err(parent, text, false, Gtk::MESSAGE_ERROR, Gtk::BUTTONS_OK, true);
+  if (!secondary.empty()) err.set_secondary_text(secondary);
+  err.run();
+  err.hide();
 }
 
 int positive_height(Gtk::Widget& widget, int fallback) {
@@ -338,7 +344,9 @@ bool SupportersNamesView::on_leave_notify_event(GdkEventCrossing* /*crossing_eve
 
 bool SupportersNamesView::on_tick(const Glib::RefPtr<Gdk::FrameClock>& clock) {
   const int view_h = get_allocated_height();
-  if (!names_overflow(view_h) || pointer_over_) {
+  // StopAndClearId returns false and clears tick_id_ without
+  // remove_tick_callback. GTK drops the callback when the handler returns false.
+  if (credits_on_tick(names_overflow(view_h), pointer_over_) == CreditsTickResult::StopAndClearId) {
     if (!pointer_over_) {
       scroll_offset_ = 0.0;
       queue_draw();
@@ -549,6 +557,9 @@ MainWindow::MainWindow() {
 }
 
 MainWindow::~MainWindow() {
+  alive_ = false;
+  supporters_idle_conn_.disconnect();
+  force_close_refresh_conn_.disconnect();
   probe_conn_.disconnect();
   refresh_conn_.disconnect();
   scroll_restore_conn_.disconnect();
@@ -671,11 +682,14 @@ void MainWindow::update_supporters_cap() {
 }
 
 void MainWindow::on_supporters_header_allocate(Gtk::Allocation& /*allocation*/) {
-  if (supporters_cap_update_queued_) return;
+  if (!alive_ || supporters_cap_update_queued_) return;
   supporters_cap_update_queued_ = true;
-  Glib::signal_idle().connect_once([this]() {
+  supporters_idle_conn_.disconnect();
+  supporters_idle_conn_ = Glib::signal_idle().connect([this]() {
     supporters_cap_update_queued_ = false;
+    if (!alive_) return false;
     update_supporters_cap();
+    return false;
   });
 }
 
@@ -719,13 +733,13 @@ void MainWindow::update_ram_bar() {
                       readout.free);
 }
 
-AppEntry MainWindow::make_system_entry(long system_kb) {
+AppEntry MainWindow::make_system_entry(long system_kb, const std::string& tooltip) {
   AppEntry system_entry;
   system_entry.name = "LCOS System";
   system_entry.pid = 0;
   system_entry.rss_kb = system_kb;
   system_entry.rss_known = true;
-  system_entry.tooltip = "LCOS System";
+  system_entry.tooltip = tooltip;
   if (!system_icon_) system_icon_ = load_lcos_system_icon();
   system_entry.icon = system_icon_;
   system_entry.protected_app = true;
@@ -774,7 +788,12 @@ void MainWindow::sync_app_rows(const std::vector<AppEntry>& apps, bool allow_str
 
   if (!same_set) {
     for (size_t i = 0; i < app_rows_.size();) {
-      if (new_keys.count(app_rows_[i].key)) {
+      const bool in_next = new_keys.count(app_rows_[i].key) != 0;
+      const bool posted = app_rows_[i].row && app_rows_[i].row->menu_posted();
+      // A posted Force Close menu keeps its row until deactivate, even when
+      // the pid has left the snapshot. The dialog freeze is the early return
+      // above; menu_posted is per row.
+      if (!may_delete_row(in_next, posted, false)) {
         ++i;
         continue;
       }
@@ -810,10 +829,14 @@ void MainWindow::sync_app_rows(const std::vector<AppEntry>& apps, bool allow_str
   if (!same_set) {
     std::map<std::string, AppListItem> pool;
     for (auto& item : app_rows_) pool.emplace(item.key, item);
+    std::vector<std::string> desired = new_order;
+    for (const auto& item : app_rows_) {
+      if (!new_keys.count(item.key)) desired.push_back(item.key);
+    }
     std::vector<AppListItem> ordered;
-    ordered.reserve(new_order.size());
+    ordered.reserve(desired.size());
     int pos = 0;
-    for (const auto& key : new_order) {
+    for (const auto& key : desired) {
       auto it = pool.find(key);
       if (it == pool.end() || !it->second.row) continue;
       list_box_.reorder_child(*it->second.row, pos++);
@@ -870,21 +893,21 @@ void MainWindow::apply_app_snapshot(std::vector<AppEntry> apps, bool x11) {
     apps.insert(apps.begin(), std::move(needs));
   }
 
-  // Rows already include descendant RssAnon, except a descendant that has
-  // its own row. The remainder is LCOS System. A negative remainder is shown
-  // as a negative figure so the rows are not forced to add up by clamping.
-  long long apps_rss = 0;
+  // Each pid's RssAnon is subtracted once. Shared anonymous pages can still
+  // make the raw remainder negative; that figure is kept in the tooltip and
+  // the row shows 0.
+  std::vector<ProcPin> pins;
   for (const auto& app : apps) {
-    if (app.rss_known) apps_rss += app.rss_kb;
+    if (!app.rss_known) continue;
+    pins.insert(pins.end(), app.kill_pins.begin(), app.kill_pins.end());
   }
-  const long long system_ll =
-      static_cast<long long>(info_.used_memory_kb) - apps_rss;
-  long system_kb = 0;
-  if (system_ll > static_cast<long long>(LONG_MAX)) system_kb = LONG_MAX;
-  else if (system_ll < static_cast<long long>(LONG_MIN)) system_kb = LONG_MIN;
-  else system_kb = static_cast<long>(system_ll);
-
-  const AppEntry system_entry = make_system_entry(system_kb);
+  const long long apps_rss = sum_rss_once(pins);
+  const SystemRemainder remainder = system_remainder_kb(info_.used_memory_kb, apps_rss);
+  std::string system_tip = "LCOS System";
+  if (remainder.clamped) {
+    system_tip += "\nUnclamped remainder: " + std::to_string(remainder.raw_kb) + " kB";
+  }
+  const AppEntry system_entry = make_system_entry(remainder.shown_kb, system_tip);
   if (!system_row_) {
     system_row_ = Gtk::manage(new AppRow(system_entry));
     list_box_.pack_start(*system_row_, Gtk::PACK_SHRINK);
@@ -894,27 +917,135 @@ void MainWindow::apply_app_snapshot(std::vector<AppEntry> apps, bool x11) {
   }
 
   sync_app_rows(apps, force_close_depth_ == 0);
+  last_snapshot_ = std::chrono::steady_clock::now();
+}
+
+void MainWindow::arm_force_close_refresh() {
+  force_close_refresh_conn_.disconnect();
+  force_close_refresh_conn_ = Glib::signal_timeout().connect_seconds(
+      [this]() {
+        if (!alive_) return false;
+        schedule_refresh();
+        return false;
+      },
+      1);
+}
+
+bool MainWindow::signal_pinned_pid(pid_t pid, unsigned long long expected_start, bool other_row,
+                                   bool require_comm, const std::string& expected_comm,
+                                   std::string& why) {
+  why.clear();
+  if (pid <= 1 || pid == getpid()) {
+    why = "That PID cannot be signalled.";
+    return false;
+  }
+  if (other_row) {
+    why = "That PID belongs to another row and was not signalled.";
+    return false;
+  }
+  const int dirfd = open_proc_pid_dir(pid);
+  if (dirfd < 0) {
+    why = "Already exited.";
+    return false;
+  }
+  const ProcSnapshot now = read_proc_snapshot_at(dirfd);
+  if (!may_signal_pinned_pid(pid, getpid(), expected_start, now.ok, now.start_ticks, false)) {
+    ::close(dirfd);
+    why = now.ok ? "That PID is a different process now and was not signalled."
+                 : "Already exited.";
+    return false;
+  }
+  if (require_comm) {
+    ProcSnapshot pinned;
+    pinned.ok = true;
+    pinned.comm = expected_comm;
+    pinned.start_ticks = expected_start;
+    if (!proc_identity_matches(pinned, now)) {
+      ::close(dirfd);
+      why = "That PID is a different process now and was not signalled.";
+      return false;
+    }
+  }
+  const int pidfd = open_pidfd(pid);
+  const int pidfd_err = errno;
+  const ProcSnapshot again = read_proc_snapshot_at(dirfd);
+  ::close(dirfd);
+  if (!may_signal_pinned_pid(pid, getpid(), expected_start, again.ok, again.start_ticks, false) ||
+      (require_comm && again.comm != expected_comm)) {
+    if (pidfd >= 0) ::close(pidfd);
+    why = "That PID changed before it could be closed and was not signalled.";
+    return false;
+  }
+  if (pidfd >= 0) {
+    if (signal_pidfd(pidfd, SIGKILL) == 0) {
+      ::close(pidfd);
+      return true;
+    }
+    const int err = errno;
+    ::close(pidfd);
+    if (err != ENOSYS) {
+      why = std::strerror(err);
+      return false;
+    }
+  } else if (pidfd_err != ENOSYS) {
+    why = "Already exited.";
+    return false;
+  }
+  if (::kill(pid, SIGKILL) != 0) {
+    why = std::strerror(errno);
+    return false;
+  }
+  return true;
 }
 
 void MainWindow::on_force_close(const AppEntry& entry_ref) {
-  // Snapshot before the dialog. dlg.run() nests the main loop, so the 3s
-  // refresh can destroy the AppRow that owns entry_ref. Cancel and confirm
-  // both use this copy only.
+  // Snapshot before the dialog. dlg.run() nests the main loop, so a refresh
+  // must not destroy the AppRow that owns entry_ref.
   const AppEntry entry = entry_ref;
   if (entry.protected_app || entry.pid <= 1 || entry.pid == getpid()) return;
 
-  const ProcIdentity before = read_proc_identity(entry.pid);
-  if (!before.ok) return;
+  ProcSnapshot pinned;
+  pinned.ok = entry.identity_ok;
+  pinned.comm = entry.comm;
+  pinned.start_ticks = entry.start_ticks;
+  if (!entry.identity_ok) {
+    show_notice(*this, "Already exited.",
+                "This row has no command and start time from the last refresh.");
+    arm_force_close_refresh();
+    return;
+  }
+  const ProcSnapshot before = read_proc_snapshot(entry.pid);
+  if (!before.ok) {
+    show_notice(*this, "Already exited.",
+                "PID " + std::to_string(entry.pid) + " is no longer running.");
+    arm_force_close_refresh();
+    return;
+  }
+  if (!proc_identity_matches(pinned, before)) {
+    show_notice(*this, "Process changed.",
+                "PID " + std::to_string(entry.pid) +
+                    " is a different process than the one listed. It was not closed.");
+    arm_force_close_refresh();
+    return;
+  }
 
-  Gtk::MessageDialog dlg(*this,
-                         "Force Close \"" + entry.name + "\"?",
-                         false,
-                         Gtk::MESSAGE_WARNING,
-                         Gtk::BUTTONS_NONE,
-                         true);
-  dlg.set_secondary_text(
-      "This will send SIGKILL to PID " + std::to_string(entry.pid) +
-      ".\nUnsaved work in that application may be lost.");
+  const std::string shown = entry.comm.empty() ? entry.name : entry.comm;
+  Gtk::MessageDialog dlg(*this, "Force Close \"" + shown + "\"?", false, Gtk::MESSAGE_WARNING,
+                         Gtk::BUTTONS_NONE, true);
+  std::string secondary =
+      "This will send SIGKILL to PID " + std::to_string(entry.pid) + " (" + entry.comm + ").\n";
+  if (!entry.name.empty() && !same_display_name(entry.name, entry.comm)) {
+    secondary += "Window class \"" + entry.name + "\" does not match that command.\n";
+  }
+  const bool window_still_there = window_xid_matches_pid(entry.xid, entry.pid);
+  if (!window_still_there) {
+    secondary += "The listed window is already gone. The process is still closed when "
+                 "its command and start time match this refresh.\n";
+  }
+  secondary +=
+      "Helper processes included in this row's RAM are signalled after their start time "
+      "is checked.\nUnsaved work in that application may be lost.";
+  dlg.set_secondary_text(secondary);
   dlg.add_button("Cancel", Gtk::RESPONSE_CANCEL);
   dlg.add_button("Force Close", Gtk::RESPONSE_ACCEPT);
   dlg.set_default_response(Gtk::RESPONSE_CANCEL);
@@ -925,32 +1056,33 @@ void MainWindow::on_force_close(const AppEntry& entry_ref) {
   --force_close_depth_;
   if (response != Gtk::RESPONSE_ACCEPT) return;
 
-  // pid 0 is LCOS System and kill(0) signals the whole process group.
-  if (entry.pid <= 1 || entry.pid == getpid()) return;
-  // Recheck this window only. A full client walk here would stall the dialog
-  // and could match a different process than the one the user confirmed.
-  if (!window_xid_matches_pid(entry.xid, entry.pid)) return;
-
-  const ProcIdentity after = read_proc_identity(entry.pid);
-  if (!after.ok || after.comm != before.comm || after.start_ticks != before.start_ticks) {
+  if (entry.pid <= 1 || entry.pid == getpid()) {
+    show_notice(*this, "Could not force-close process.", "That PID cannot be signalled.");
     return;
   }
 
-  if (kill(entry.pid, SIGKILL) != 0) {
-    const int kill_errno = errno;
-    Gtk::MessageDialog err(*this, "Could not force-close process.", false,
-                           Gtk::MESSAGE_ERROR, Gtk::BUTTONS_OK, true);
-    err.set_secondary_text(std::strerror(kill_errno));
-    err.run();
-    err.hide();
+  std::set<pid_t> other_rows;
+  for (const auto& item : app_rows_) {
+    if (!item.row) continue;
+    const pid_t pid = item.row->pid();
+    if (pid > 1 && pid != entry.pid) other_rows.insert(pid);
   }
-  // Brief delay then refresh
-  Glib::signal_timeout().connect_seconds(
-      [this]() {
-        schedule_refresh();
-        return false;
-      },
-      1);
+
+  for (const auto& pin : entry.kill_pins) {
+    if (pin.pid == entry.pid) continue;
+    const bool other = other_rows.count(pin.pid) != 0;
+    std::string why;
+    signal_pinned_pid(pin.pid, pin.start_ticks, other, false, "", why);
+  }
+
+  std::string why;
+  if (!signal_pinned_pid(entry.pid, entry.start_ticks, false, true, entry.comm, why)) {
+    show_notice(*this, why == "Already exited." ? "Already exited." : "Could not force-close process.",
+                why);
+    arm_force_close_refresh();
+    return;
+  }
+  arm_force_close_refresh();
 }
 
 void MainWindow::start_refresh_timer() {
@@ -964,7 +1096,7 @@ void MainWindow::stop_refresh_work() {
   probe_conn_.disconnect();
   probe_.reset();
   refresh_running_ = false;
-  refresh_queued_ = false;
+  refresh_followup_ = false;
 }
 
 void MainWindow::on_mapped() {
@@ -998,19 +1130,21 @@ bool MainWindow::on_window_state(GdkEventWindowState* event) {
 }
 
 void MainWindow::schedule_refresh() {
-  if (iconified_ || !get_mapped()) return;
+  if (!alive_ || iconified_ || !get_mapped()) return;
   if (refresh_running_) {
-    refresh_queued_ = true;
+    // Explicit callers (map, Force Close) may run once more when the probe
+    // finishes. The 3s timer never reaches this branch while a probe runs.
+    refresh_followup_ = true;
     return;
   }
   refresh_running_ = true;
-  refresh_queued_ = false;
+  refresh_followup_ = false;
   probe_ = std::make_unique<AppListRefresh>(getpid());
   probe_conn_ = Glib::signal_idle().connect(sigc::mem_fun(*this, &MainWindow::on_probe_idle));
 }
 
 bool MainWindow::on_probe_idle() {
-  if (!probe_) {
+  if (!alive_ || !probe_) {
     refresh_running_ = false;
     return false;
   }
@@ -1021,18 +1155,23 @@ bool MainWindow::on_probe_idle() {
   probe_.reset();
   apply_app_snapshot(std::move(entries), x11);
 
-  if (refresh_queued_ && get_mapped() && !iconified_) {
-    refresh_queued_ = false;
+  if (refresh_followup_ && alive_ && get_mapped() && !iconified_) {
+    refresh_followup_ = false;
     probe_ = std::make_unique<AppListRefresh>(getpid());
     return true;
   }
-  refresh_queued_ = false;
+  refresh_followup_ = false;
   refresh_running_ = false;
   return false;
 }
 
 bool MainWindow::on_refresh_tick() {
-  if (iconified_ || !get_mapped()) return true;
+  if (!alive_ || iconified_ || !get_mapped()) return true;
+  if (refresh_running_) return true;
+  if (last_snapshot_.time_since_epoch().count() != 0 &&
+      std::chrono::steady_clock::now() - last_snapshot_ < std::chrono::seconds(3)) {
+    return true;
+  }
   schedule_refresh();
   return true;
 }
