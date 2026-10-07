@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "system_info.hpp"
+#include "about_logic.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -8,7 +9,8 @@
 #include <string>
 #include <vector>
 #include <algorithm>
-#include <cmath>
+#include <dirent.h>
+#include <cctype>
 
 namespace lundukeabout {
 namespace {
@@ -128,160 +130,174 @@ void apply_memory_fields(SystemInfo& info) {
   info.total_memory = format_memory_human(info.total_memory_kb);
 }
 
-std::string read_gpu_lspci() {
-  std::string best;
+bool read_hex_sysfs(const std::string& path, unsigned& out) {
+  std::ifstream in(path);
+  std::string text;
+  if (!(in >> text)) return false;
+  char* end = nullptr;
+  const unsigned long parsed = std::strtoul(text.c_str(), &end, 0);
+  if (end == text.c_str()) return false;
+  out = static_cast<unsigned>(parsed);
+  return true;
+}
 
-  auto try_lspci = [&](const char* cmd) {
-    FILE* pipe = popen(cmd, "r");
-    if (!pipe) return;
-    char buf[512];
-    std::vector<std::string> lines;
-    while (fgets(buf, sizeof(buf), pipe)) lines.emplace_back(buf);
-    pclose(pipe);
+std::string read_driver_name(const std::string& uevent_path) {
+  std::ifstream in(uevent_path);
+  std::string line;
+  while (std::getline(in, line)) {
+    if (line.rfind("DRIVER=", 0) == 0) return line.substr(7);
+  }
+  return {};
+}
 
-    for (const auto& raw : lines) {
-      std::string line = trim(raw);
-      std::string lower = line;
-      std::transform(lower.begin(), lower.end(), lower.begin(),
-                     [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-      bool match = lower.find("vga") != std::string::npos ||
-                   lower.find("\"3d") != std::string::npos ||
-                   lower.find(" 3d ") != std::string::npos ||
-                   lower.find("display controller") != std::string::npos;
-      if (!match) continue;
+std::string find_pci_ids_file() {
+  const char* paths[] = {
+      "/usr/share/misc/pci.ids",
+      "/usr/share/hwdata/pci.ids",
+      "/usr/share/pci.ids",
+  };
+  for (const char* path : paths) {
+    std::ifstream in(path);
+    if (in) return path;
+  }
+  return {};
+}
 
-      std::string rest = line;
-      auto colon = line.find(": ");
-      if (colon != std::string::npos) rest = line.substr(colon + 2);
+std::string read_drm_fallback() {
+  DIR* dir = opendir("/sys/class/drm");
+  if (!dir) return {};
+  std::string driver;
+  while (dirent* de = readdir(dir)) {
+    const std::string name = de->d_name;
+    if (name.rfind("card", 0) != 0) continue;
+    if (name.find('-') != std::string::npos) continue;
+    driver = read_driver_name("/sys/class/drm/" + name + "/device/uevent");
+    if (!driver.empty()) break;
+  }
+  closedir(dir);
+  if (driver.empty()) return {};
+  return "DRM: " + driver;
+}
 
-      if (line.find('"') != std::string::npos) {
-        std::vector<std::string> fields;
-        bool in = false;
-        std::string cur;
-        for (char c : line) {
-          if (c == '"') {
-            if (in) {
-              fields.push_back(cur);
-              cur.clear();
-            }
-            in = !in;
-          } else if (in) {
-            cur.push_back(c);
-          }
-        }
-        if (fields.size() >= 3) rest = fields[1] + " " + fields[2];
-      } else {
-        auto c2 = rest.find(": ");
-        if (c2 != std::string::npos) rest = rest.substr(c2 + 2);
-        auto rev = rest.rfind(" (rev ");
-        if (rev != std::string::npos) rest = rest.substr(0, rev);
-      }
-      best = trim(rest);
+bool comm_is_xvfb() {
+  DIR* dir = opendir("/proc");
+  if (!dir) return false;
+  bool found = false;
+  while (dirent* de = readdir(dir)) {
+    if (!std::isdigit(static_cast<unsigned char>(de->d_name[0]))) continue;
+    std::ifstream in(std::string("/proc/") + de->d_name + "/comm");
+    std::string comm;
+    if (!std::getline(in, comm)) continue;
+    if (!comm.empty() && comm.back() == '\n') comm.pop_back();
+    if (comm == "Xvfb") {
+      found = true;
       break;
     }
-  };
-
-  try_lspci("lspci -mm 2>/dev/null");
-  if (best.empty()) try_lspci("lspci 2>/dev/null");
-
-  // sysfs PCI class 0x03xxxx (VGA / 3D / display)
-  if (best.empty()) {
-    std::ifstream dir;
-    // Walk /sys/bus/pci/devices
-    FILE* pipe = popen("ls -1 /sys/bus/pci/devices 2>/dev/null", "r");
-    if (pipe) {
-      char slot[128];
-      while (fgets(slot, sizeof(slot), pipe)) {
-        std::string s = trim(slot);
-        std::ifstream cls("/sys/bus/pci/devices/" + s + "/class");
-        std::string c;
-        if (!(cls >> c)) continue;
-        // 0x030000 VGA, 0x030200 3D, 0x038000 display
-        if (c.rfind("0x03", 0) != 0) continue;
-        std::ifstream vend("/sys/bus/pci/devices/" + s + "/vendor");
-        std::ifstream dev("/sys/bus/pci/devices/" + s + "/device");
-        std::string v, d;
-        vend >> v;
-        dev >> d;
-        std::ifstream uevent("/sys/bus/pci/devices/" + s + "/uevent");
-        std::string line, driver;
-        while (std::getline(uevent, line)) {
-          if (line.rfind("DRIVER=", 0) == 0) driver = line.substr(7);
-        }
-        best = "PCI " + v + ":" + d;
-        if (!driver.empty()) best += " (" + driver + ")";
-        break;
-      }
-      pclose(pipe);
-    }
   }
+  closedir(dir);
+  return found;
+}
 
-  // DRM uevent
-  if (best.empty()) {
-    std::ifstream drm("/sys/class/drm/card0/device/uevent");
-    std::string line;
-    while (std::getline(drm, line)) {
-      if (line.rfind("DRIVER=", 0) == 0) {
-        best = "DRM: " + line.substr(7);
-        break;
-      }
+// sysfs only on the startup path. lspci / glxinfo are not launched.
+// The string is cached for the process.
+std::string read_gpu() {
+  static bool cached = false;
+  static std::string value;
+  if (cached) return value;
+  cached = true;
+
+  std::vector<GpuDevice> devices;
+  if (DIR* dir = opendir("/sys/bus/pci/devices")) {
+    while (dirent* de = readdir(dir)) {
+      if (de->d_name[0] == '.') continue;
+      const std::string slot = de->d_name;
+      const std::string base = "/sys/bus/pci/devices/" + slot;
+      unsigned class_code = 0;
+      if (!read_hex_sysfs(base + "/class", class_code)) continue;
+      if (!is_display_class(class_code)) continue;
+      unsigned vendor = 0;
+      unsigned device = 0;
+      read_hex_sysfs(base + "/vendor", vendor);
+      read_hex_sysfs(base + "/device", device);
+      devices.push_back(
+          GpuDevice{slot, class_code, vendor, device, read_driver_name(base + "/uevent")});
     }
+    closedir(dir);
   }
+  std::sort(devices.begin(), devices.end(),
+            [](const GpuDevice& a, const GpuDevice& b) { return a.slot < b.slot; });
 
-  // glxinfo renderer (works under Xvfb / LLVMpipe)
-  if (best.empty()) {
-    FILE* pipe = popen("glxinfo 2>/dev/null | grep -m1 'OpenGL renderer'", "r");
-    if (pipe) {
-      char buf[256];
-      if (fgets(buf, sizeof(buf), pipe)) {
-        std::string line = trim(buf);
-        auto colon = line.find(':');
-        if (colon != std::string::npos) best = trim(line.substr(colon + 1));
-      }
-      pclose(pipe);
-    }
+  PciDb db;
+  const std::string ids_path = find_pci_ids_file();
+  if (!ids_path.empty()) {
+    std::ifstream in(ids_path);
+    if (in) db = parse_pci_ids(in);
   }
+  value = gpu_label_from_devices(devices, db);
+  if (value.empty()) value = read_drm_fallback();
+  if (value.empty() && comm_is_xvfb()) value = "Virtual framebuffer (Xvfb)";
+  if (value.empty()) value = "Unknown GPU";
+  return value;
+}
 
-  // Xvfb / virtual display hint
-  if (best.empty()) {
-    FILE* pipe = popen("ps -eo comm= 2>/dev/null | grep -x Xvfb", "r");
-    bool xvfb = false;
-    if (pipe) {
-      char buf[64];
-      if (fgets(buf, sizeof(buf), pipe)) xvfb = true;
-      pclose(pipe);
-    }
-    if (xvfb) best = "Virtual framebuffer (Xvfb)";
+enum class MemUnit { MbTenth, MbInt, GbTenth };
+
+MemUnit unit_for_kb(long long mag_kb) {
+  if (mag_kb < 0) mag_kb = -mag_kb;
+  if (mag_kb >= 1024LL * 1024LL) return MemUnit::GbTenth;
+  if (mag_kb >= 10LL * 1024LL) return MemUnit::MbInt;
+  return MemUnit::MbTenth;
+}
+
+long long round_units(long long kb, MemUnit unit) {
+  const long long sign = kb < 0 ? -1 : 1;
+  const long long mag = kb < 0 ? -kb : kb;
+  long long denom = 1024;
+  long long scale = 1;
+  if (unit == MemUnit::GbTenth) {
+    denom = 1024LL * 1024LL;
+    scale = 10;
+  } else if (unit == MemUnit::MbTenth) {
+    scale = 10;
   }
+  return sign * ((mag * scale + denom / 2) / denom);
+}
 
-  return best.empty() ? "Unknown GPU" : best;
+std::string format_units(long long units, MemUnit unit) {
+  const bool neg = units < 0;
+  const long long mag = neg ? -units : units;
+  const char* sign = neg ? "-" : "";
+  char buf[64];
+  if (unit == MemUnit::MbInt) {
+    std::snprintf(buf, sizeof(buf), "%s%lld MB", sign, mag);
+  } else {
+    const char* suffix = unit == MemUnit::GbTenth ? "GB" : "MB";
+    std::snprintf(buf, sizeof(buf), "%s%lld.%lld %s", sign, mag / 10, mag % 10, suffix);
+  }
+  return buf;
 }
 
 }  // namespace
 
-std::string format_memory_mb(long kb) {
-  if (kb <= 0) return "0 MB";
-  double mb = static_cast<double>(kb) / 1024.0;
-  char buf[64];
-  if (mb < 10.0)
-    std::snprintf(buf, sizeof(buf), "%.1f MB", mb);
-  else
-    std::snprintf(buf, sizeof(buf), "%.0f MB", mb);
-  return buf;
+std::string format_memory_human(long kb) {
+  if (kb == 0) return "0 MB";
+  const MemUnit unit = unit_for_kb(kb);
+  return format_units(round_units(kb, unit), unit);
 }
 
-std::string format_memory_human(long kb) {
-  if (kb <= 0) return "0 MB";
-  double mb = static_cast<double>(kb) / 1024.0;
-  char buf[64];
-  if (mb >= 1024.0) {
-    std::snprintf(buf, sizeof(buf), "%.1f GB", mb / 1024.0);
-  } else if (mb < 10.0) {
-    std::snprintf(buf, sizeof(buf), "%.1f MB", mb);
-  } else {
-    std::snprintf(buf, sizeof(buf), "%.0f MB", mb);
+MemoryReadout format_memory_readout(long used_kb, long total_kb) {
+  MemoryReadout out;
+  if (used_kb == 0 && total_kb == 0) {
+    out.total = out.used = out.free = "0 MB";
+    return out;
   }
-  return buf;
+  const MemUnit unit = unit_for_kb(total_kb);
+  const long long total_units = round_units(total_kb, unit);
+  const long long used_units = round_units(used_kb, unit);
+  out.total = format_units(total_units, unit);
+  out.used = format_units(used_units, unit);
+  out.free = format_units(total_units - used_units, unit);
+  return out;
 }
 
 SystemInfo gather_system_info() {
@@ -321,7 +337,7 @@ SystemInfo gather_system_info() {
 
   apply_memory_fields(info);
   info.cpu_model = read_cpu_model();
-  info.gpu = read_gpu_lspci();
+  info.gpu = read_gpu();
   return info;
 }
 

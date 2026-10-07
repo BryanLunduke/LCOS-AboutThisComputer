@@ -1,5 +1,18 @@
 # lunduke-about NOTES
 
+## v0.9-2
+
+- Debian revision only (0.9-1 → 0.9-2). Meson project version stays **0.9**.
+- App list refresh runs in short idle slices. Force Close rechecks one XID and the existing /proc identity.
+- Icons are cached per XID. `_NET_WM_ICON` reads are capped and malformed frames are rejected. RssAnon is read once; VmSize is not read.
+- Rows add descendant RssAnon unless that descendant has its own row. No PID shows an em dash. The system remainder is not clamped to 0.
+- List labels stay dark on the white background. CPU, GPU, and the document title have tooltips; the row prefers the application name.
+- One row per PID, preferring the active window. Protection is OR'd across that process, including `/proc/comm`. Splash, menu, tooltip, notification, and utility windows are skipped.
+- Scroll restores after the new list height exists. The 3s probe stops while unmapped or iconified.
+- GPU text comes from sysfs and pci.ids (3D controller preferred). No glxinfo on startup. A non-X11 display shows Needs X11.
+- Supporter crawl redraws only when the origin moves, pauses under the pointer, and still runs when the cap is shorter than a line (header grows to one line).
+- RAM rows and the bar share one human formatter so used and free match Built-in Memory.
+
 ## v0.9
 
 - LCOS 0.9 track identity bump. Features and UI unchanged from 0.8.4

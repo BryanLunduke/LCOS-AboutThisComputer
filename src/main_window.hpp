@@ -6,6 +6,7 @@
 #include "window_enum.hpp"
 
 #include <gtkmm.h>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -25,6 +26,7 @@ public:
 
   void set_text(const Glib::ustring& text);
   void set_max_height(int height);
+  int line_height() const;
 
 protected:
   Gtk::SizeRequestMode get_request_mode_vfunc() const override;
@@ -35,6 +37,8 @@ protected:
   void on_size_allocate(Gtk::Allocation& allocation) override;
   void on_style_updated() override;
   bool on_draw(const Cairo::RefPtr<Cairo::Context>& cr) override;
+  bool on_enter_notify_event(GdkEventCrossing* crossing_event) override;
+  bool on_leave_notify_event(GdkEventCrossing* crossing_event) override;
 
 private:
   void ensure_layout(int width) const;
@@ -55,11 +59,13 @@ private:
   mutable int layout_width_ = -1;
   mutable int layout_pixel_height_ = 0;
   mutable int single_line_height_ = 0;
+  bool pointer_over_ = false;
 };
 
 class MainWindow : public Gtk::ApplicationWindow {
 public:
   MainWindow();
+  ~MainWindow() override;
 
 private:
   void apply_platinum_css();
@@ -67,12 +73,21 @@ private:
   void load_supporters();
   void update_supporters_cap();
   void on_supporters_header_allocate(Gtk::Allocation& allocation);
-  void refresh_app_list();
   void update_ram_bar();
   Glib::RefPtr<Gdk::Pixbuf> load_lcos_system_icon() const;
   void on_force_close(const AppEntry& entry);
   bool on_refresh_tick();
-  bool entry_still_listed(const AppEntry& entry) const;
+  void on_mapped();
+  void on_unmapped();
+  bool on_window_state(GdkEventWindowState* event);
+  void start_refresh_timer();
+  void stop_refresh_work();
+  void schedule_refresh();
+  bool on_probe_idle();
+  void apply_app_snapshot(std::vector<AppEntry> apps, bool x11);
+  void on_list_scroll_allocate(Gtk::Allocation& allocation);
+  void arm_scroll_restore(double value);
+  void apply_pending_scroll();
   std::string find_data_file(const std::string& relative) const;
 
   struct AppListItem {
@@ -108,6 +123,15 @@ private:
   int force_close_depth_ = 0;
   Glib::RefPtr<Gtk::CssProvider> css_;
   sigc::connection refresh_conn_;
+  sigc::connection probe_conn_;
+  sigc::connection scroll_restore_conn_;
+  sigc::connection scroll_idle_conn_;
+  std::unique_ptr<AppListRefresh> probe_;
+  bool iconified_ = false;
+  bool refresh_running_ = false;
+  bool refresh_queued_ = false;
+  bool pending_scroll_restore_ = false;
+  double pending_scroll_ = 0.0;
 };
 
 }  // namespace lundukeabout

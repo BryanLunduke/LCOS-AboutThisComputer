@@ -11,6 +11,7 @@ namespace lundukeabout {
 class AppRow : public Gtk::EventBox {
 public:
   AppRow(const AppEntry& entry);
+  ~AppRow() override;
 
   pid_t pid() const { return entry_.pid; }
   const AppEntry& entry() const { return entry_; }
@@ -25,8 +26,10 @@ protected:
 private:
   void on_force_close();
   bool can_force_close() const;
+  void rebuild_menu_item();
   static bool same_pixbuf(const Glib::RefPtr<Gdk::Pixbuf>& a,
                           const Glib::RefPtr<Gdk::Pixbuf>& b);
+  static std::string memory_caption(const AppEntry& entry);
 
   AppEntry entry_;
   ForceCloseHandler handler_;
@@ -35,6 +38,9 @@ private:
   Gtk::Image icon_;
   Gtk::Label name_;
   Gtk::Label mem_label_;
+  Gtk::Menu menu_;
+  Gtk::MenuItem item_;
+  bool menu_attached_ = false;
 };
 
 }  // namespace lundukeabout

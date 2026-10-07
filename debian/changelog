@@ -1,3 +1,37 @@
+lunduke-about (0.9-2) unstable; urgency=medium
+
+  * Refresh the application list in short idle slices so the window stays
+    responsive. Force Close rechecks only that window's XID plus the
+    existing /proc command and start time.
+  * Cache window icons per XID, cap _NET_WM_ICON reads, and reject
+    malformed frames that would loop. Read RssAnon once; do not read VmSize.
+  * App rows include descendant RssAnon unless that descendant has its own
+    row. Windows with no PID show an em dash. The system remainder is not
+    clamped to 0.
+  * App-list labels stay dark on the white list background.
+  * Supporter names crawl, or the header grows to one line, when the cap
+    is shorter than a line. The crawl redraws only when the text moves and
+    pauses while the pointer is over the names.
+  * CPU, GPU, and window titles have tooltips. Rows prefer the application
+    name and put the document title in the tooltip.
+  * One row per process, preferring the active window. Protected classes
+    are combined across that process's windows. Splash, menu, tooltip,
+    notification, and utility windows are skipped.
+  * List scroll position is restored after the new height exists.
+  * GPU detection reads sysfs and pci.ids, prefers a 3D controller when a
+    VGA device is also present, skips glxinfo at startup, and caches the
+    name.
+  * The refresh timer stops while the window is unmapped or iconified.
+  * RAM labels use one human formatter so the rounded used and free figures
+    match Built-in Memory.
+  * Protected rows show a disabled menu with the reason. Session binaries
+    also match /proc comm. One Force Close menu is reused.
+  * A non-X11 display shows a Needs X11 row. The client list is read to
+    the end.
+  * Meson project version remains 0.9.
+
+ -- LCOS <lcos@lunduke.com>  Wed, 07 Oct 2026 06:33:00 +0000
+
 lunduke-about (0.9-1) unstable; urgency=medium
 
   * LCOS 0.9 track identity bump (0.8 → 0.9 / Debian 0.9-1).

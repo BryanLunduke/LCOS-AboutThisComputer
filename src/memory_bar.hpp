@@ -11,7 +11,10 @@ namespace lundukeabout {
 class MemoryBar : public Gtk::DrawingArea {
 public:
   MemoryBar();
-  void set_memory(long used_kb, long total_kb);
+  // used_amount and free_amount are already rounded together (see
+  // format_memory_readout). The bar does not round them again.
+  void set_memory(long used_kb, long total_kb, const std::string& used_amount,
+                  const std::string& free_amount);
 
 protected:
   bool on_draw(const Cairo::RefPtr<Cairo::Context>& cr) override;
@@ -19,6 +22,9 @@ protected:
 private:
   long used_kb_ = 0;
   long total_kb_ = 0;
+  bool show_free_ = false;
+  std::string used_caption_;
+  std::string free_caption_;
 };
 
 }  // namespace lundukeabout

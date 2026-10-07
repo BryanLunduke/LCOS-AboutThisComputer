@@ -34,10 +34,18 @@ lunduke_about_sources = files(
   'src/application.cpp',
   'src/main_window.cpp',
   'src/system_info.cpp',
+  'src/about_logic.cpp',
   'src/window_enum.cpp',
   'src/app_row.cpp',
   'src/memory_bar.cpp',
 )
+
+about_logic_test = executable(
+  'about-logic-test',
+  files('tests/logic_test.cpp', 'src/about_logic.cpp', 'src/system_info.cpp'),
+  include_directories: lunduke_about_inc,
+)
+test('about-logic', about_logic_test, timeout: 60)
 
 executable(
   'lunduke-about',
