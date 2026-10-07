@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "memory_bar.hpp"
-#include "system_info.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -14,10 +13,17 @@ MemoryBar::MemoryBar() {
   set_valign(Gtk::ALIGN_CENTER);
 }
 
-void MemoryBar::set_memory(long used_kb, long total_kb) {
-  used_kb_ = std::max(0L, used_kb);
-  total_kb_ = std::max(0L, total_kb);
-  if (used_kb_ > total_kb_ && total_kb_ > 0) used_kb_ = total_kb_;
+void MemoryBar::set_memory(long used_kb, long total_kb, const std::string& used_amount,
+                           const std::string& free_amount) {
+  const long raw_used = used_kb;
+  const long raw_total = total_kb;
+  used_kb_ = std::max(0L, raw_used);
+  total_kb_ = std::max(0L, raw_total);
+  if (total_kb_ > 0 && used_kb_ > total_kb_) used_kb_ = total_kb_;
+  const long free_kb = (raw_total > raw_used) ? (raw_total - raw_used) : 0;
+  show_free_ = free_kb > 0 && !free_amount.empty();
+  used_caption_ = used_amount + " RAM Used";
+  free_caption_ = free_amount + " RAM Free";
   queue_draw();
 }
 
@@ -36,7 +42,6 @@ bool MemoryBar::on_draw(const Cairo::RefPtr<Cairo::Context>& cr) {
                       : 0.0;
   const double used_w = bar_w * used_frac;
   const double free_w = bar_w - used_w;
-  const long free_kb = (total_kb_ > used_kb_) ? (total_kb_ - used_kb_) : 0;
 
   // Light unused fill (platinum-ish)
   cr->set_source_rgb(0.92, 0.92, 0.94);
@@ -82,17 +87,14 @@ bool MemoryBar::on_draw(const Cairo::RefPtr<Cairo::Context>& cr) {
     return layout;
   };
 
-  const std::string used_text = format_memory_human(used_kb_) + " RAM Used";
   int utw = 0, uth = 0;
-  auto used_layout = make_layout(used_text, utw, uth);
+  auto used_layout = make_layout(used_caption_, utw, uth);
 
-  const bool show_free = free_kb > 0;
+  const bool show_free = show_free_;
   int ftw = 0, fth = 0;
   Glib::RefPtr<Pango::Layout> free_layout;
-  std::string free_text;
   if (show_free) {
-    free_text = format_memory_human(free_kb) + " RAM Free";
-    free_layout = make_layout(free_text, ftw, fth);
+    free_layout = make_layout(free_caption_, ftw, fth);
   }
 
   auto fits = [](double region_w, int tw) {

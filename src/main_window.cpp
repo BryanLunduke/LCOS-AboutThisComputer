@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "main_window.hpp"
 #include "app_row.hpp"
+#include "about_logic.hpp"
 #include "config.h"
 
 #include <fstream>
@@ -9,6 +10,7 @@
 #include <algorithm>
 #include <map>
 #include <set>
+#include <climits>
 #include <unistd.h>
 #include <signal.h>
 #include <sys/types.h>
@@ -22,7 +24,8 @@ namespace {
 [[maybe_unused]] constexpr const char* kNoRunningSoftware = "No Running Software.";
 
 // Theme-aware chrome: no hardcoded platinum greys for window/panel.
-// List frame stays white/readable. Labels inherit dark readable theme fg.
+// The list stays white, so its labels are forced dark (a dark theme's
+// foreground would otherwise be unreadable on that white).
 const char* kAboutCss = R"CSS(
 window.lunduke-about {
   background-color: @theme_bg_color;
@@ -54,10 +57,20 @@ window.lunduke-about * {
 }
 .platinum-list {
   background-color: #ffffff;
+  color: #1a1a1a;
+}
+.platinum-list label,
+.platinum-list row label {
+  color: #1a1a1a;
+}
+.platinum-list label:disabled,
+.platinum-list row label:disabled {
+  color: #5a5a5a;
 }
 .platinum-list row,
 .platinum-list .app-row-bg {
   background-color: #ffffff;
+  color: #1a1a1a;
 }
 .about-header {
   background-color: @theme_bg_color;
@@ -148,6 +161,7 @@ SupportersNamesView::SupportersNamesView() {
   set_valign(Gtk::ALIGN_START);
   get_style_context()->add_class("supporters-names");
   get_style_context()->add_class("about-info");
+  add_events(Gdk::ENTER_NOTIFY_MASK | Gdk::LEAVE_NOTIFY_MASK);
 }
 
 SupportersNamesView::~SupportersNamesView() {
@@ -244,7 +258,7 @@ void SupportersNamesView::ensure_layout(int width) const {
   layout->get_pixel_size(pixel_width, pixel_height);
   (void)pixel_width;
 
-  auto single = const_cast<SupportersNamesView*>(this)->create_pango_layout(text_);
+  auto single = const_cast<SupportersNamesView*>(this)->create_pango_layout("Ay");
   single->set_width(-1);
   int single_width = 0;
   int single_height = 0;
@@ -258,15 +272,21 @@ void SupportersNamesView::ensure_layout(int width) const {
 }
 
 bool SupportersNamesView::names_overflow(int view_height) const {
-  // A strip shorter than one line is an unfinished header measure (the logo
-  // size is not known yet). The names are not actually too tall to read, so
-  // do not arm the crawl.
-  if (view_height <= 1 || layout_pixel_height_ <= 0) return false;
-  if (single_line_height_ > 1 &&
-      view_height + kFitSlackPx < single_line_height_) {
-    return false;
-  }
-  return layout_pixel_height_ > view_height + kFitSlackPx;
+  // view_height <= 1 is the only "not laid out yet" guard. A cap shorter
+  // than one line still crawls; the header is also grown to one line.
+  return credits_should_crawl(view_height, layout_pixel_height_, kFitSlackPx);
+}
+
+int SupportersNamesView::line_height() const {
+  if (single_line_height_ > 1) return single_line_height_;
+  auto layout = const_cast<SupportersNamesView*>(this)->create_pango_layout("Ay");
+  layout->set_width(-1);
+  int width = 0;
+  int height = 0;
+  layout->get_pixel_size(width, height);
+  if (height < 1) height = 1;
+  single_line_height_ = height;
+  return single_line_height_;
 }
 
 void SupportersNamesView::sync_scroll_policy() {
@@ -276,6 +296,12 @@ void SupportersNamesView::sync_scroll_policy() {
       scroll_offset_ = 0.0;
       queue_draw();
     }
+    last_frame_us_ = 0;
+    stop_tick();
+    return;
+  }
+  // A pointer resting on the names pauses the crawl until it leaves.
+  if (pointer_over_) {
     last_frame_us_ = 0;
     stop_tick();
     return;
@@ -296,13 +322,29 @@ void SupportersNamesView::stop_tick() {
   remove_tick_callback(id);
 }
 
+bool SupportersNamesView::on_enter_notify_event(GdkEventCrossing* /*crossing_event*/) {
+  pointer_over_ = true;
+  last_frame_us_ = 0;
+  stop_tick();
+  return false;
+}
+
+bool SupportersNamesView::on_leave_notify_event(GdkEventCrossing* /*crossing_event*/) {
+  pointer_over_ = false;
+  last_frame_us_ = 0;
+  sync_scroll_policy();
+  return false;
+}
+
 bool SupportersNamesView::on_tick(const Glib::RefPtr<Gdk::FrameClock>& clock) {
   const int view_h = get_allocated_height();
-  if (!names_overflow(view_h)) {
-    scroll_offset_ = 0.0;
+  if (!names_overflow(view_h) || pointer_over_) {
+    if (!pointer_over_) {
+      scroll_offset_ = 0.0;
+      queue_draw();
+    }
     last_frame_us_ = 0;
     tick_id_ = 0;
-    queue_draw();
     return false;
   }
 
@@ -313,14 +355,16 @@ bool SupportersNamesView::on_tick(const Glib::RefPtr<Gdk::FrameClock>& clock) {
   if (dt < 0.0) dt = 0.0;
   if (dt > 0.05) dt = 0.05;
 
+  const int origin_before = static_cast<int>(scroll_offset_);
   scroll_offset_ += kCreditsPixelsPerSecond * dt;
   const double cycle =
       static_cast<double>(layout_pixel_height_ + kCreditsLoopGapPx);
   if (cycle > 1.0) {
     while (scroll_offset_ >= cycle) scroll_offset_ -= cycle;
   }
-
-  queue_draw();
+  const int origin_after = static_cast<int>(scroll_offset_);
+  // 16 px/s only moves the integer origin on some frames. Skip the rest.
+  if (origin_after != origin_before) queue_draw();
   return true;
 }
 
@@ -455,10 +499,12 @@ MainWindow::MainWindow() {
   cpu_label_.set_halign(Gtk::ALIGN_START);
   cpu_label_.set_ellipsize(Pango::ELLIPSIZE_END);
   cpu_label_.set_max_width_chars(36);
+  cpu_label_.set_tooltip_text("CPU:  " + info_.cpu_model);
   gpu_label_.set_text("GPU:  " + info_.gpu);
   gpu_label_.set_halign(Gtk::ALIGN_START);
   gpu_label_.set_ellipsize(Pango::ELLIPSIZE_END);
   gpu_label_.set_max_width_chars(36);
+  gpu_label_.set_tooltip_text("GPU:  " + info_.gpu);
 
   left_col->pack_start(os_label_, Gtk::PACK_SHRINK);
   left_col->pack_start(mem_label_, Gtk::PACK_SHRINK);
@@ -492,12 +538,22 @@ MainWindow::MainWindow() {
   frame->add(list_scroll_);
   root_.pack_start(*frame, Gtk::PACK_EXPAND_WIDGET);
 
-  show_all();
+  list_scroll_.signal_size_allocate().connect(
+      sigc::mem_fun(*this, &MainWindow::on_list_scroll_allocate));
+  signal_map().connect(sigc::mem_fun(*this, &MainWindow::on_mapped));
+  signal_unmap().connect(sigc::mem_fun(*this, &MainWindow::on_unmapped));
+  signal_window_state_event().connect(
+      sigc::mem_fun(*this, &MainWindow::on_window_state));
 
-  // First enumerate often races window mapping; refresh once idle, then periodically.
-  Glib::signal_idle().connect_once([this]() { refresh_app_list(); });
-  refresh_conn_ = Glib::signal_timeout().connect(
-      sigc::mem_fun(*this, &MainWindow::on_refresh_tick), 3000);
+  show_all();
+}
+
+MainWindow::~MainWindow() {
+  probe_conn_.disconnect();
+  refresh_conn_.disconnect();
+  scroll_restore_conn_.disconnect();
+  scroll_idle_conn_.disconnect();
+  probe_.reset();
 }
 
 void MainWindow::apply_platinum_css() {
@@ -607,6 +663,9 @@ void MainWindow::update_supporters_cap() {
   const int blank_h = positive_height(supporters_blank_, 16);
 
   int max_names = logo_span - title_h - blank_h;
+  const int line = supporters_names_view_.line_height();
+  // A cap shorter than one line clips the names. Grow the header instead.
+  if (line > 1 && max_names < line) max_names = line;
   if (max_names < 1) max_names = 1;
   supporters_names_view_.set_max_height(max_names);
 }
@@ -652,8 +711,12 @@ void MainWindow::load_supporters() {
 
 void MainWindow::update_ram_bar() {
   refresh_memory_usage(info_);
-  mem_label_.set_text("Built-in Memory:  " + info_.total_memory);
-  ram_bar_.set_memory(info_.used_memory_kb, info_.total_memory_kb);
+  const MemoryReadout readout =
+      format_memory_readout(info_.used_memory_kb, info_.total_memory_kb);
+  info_.total_memory = readout.total;
+  mem_label_.set_text("Built-in Memory:  " + readout.total);
+  ram_bar_.set_memory(info_.used_memory_kb, info_.total_memory_kb, readout.used,
+                      readout.free);
 }
 
 AppEntry MainWindow::make_system_entry(long system_kb) {
@@ -661,10 +724,12 @@ AppEntry MainWindow::make_system_entry(long system_kb) {
   system_entry.name = "LCOS System";
   system_entry.pid = 0;
   system_entry.rss_kb = system_kb;
+  system_entry.rss_known = true;
+  system_entry.tooltip = "LCOS System";
   if (!system_icon_) system_icon_ = load_lcos_system_icon();
   system_entry.icon = system_icon_;
   system_entry.protected_app = true;
-  system_entry.protect_reason = "system";
+  system_entry.protect_reason = "LCOS System";
   return system_entry;
 }
 
@@ -759,28 +824,65 @@ void MainWindow::sync_app_rows(const std::vector<AppEntry>& apps, bool allow_str
     app_rows_ = std::move(ordered);
   }
 
-  if (restore_scroll) {
-    if (auto adj = list_scroll_.get_vadjustment()) {
-      const double max = std::max(0.0, adj->get_upper() - adj->get_page_size());
-      adj->set_value(std::min(saved_scroll, max));
-    }
+  if (restore_scroll) arm_scroll_restore(saved_scroll);
+}
+
+void MainWindow::on_list_scroll_allocate(Gtk::Allocation& /*allocation*/) {
+  if (pending_scroll_restore_) apply_pending_scroll();
+}
+
+void MainWindow::arm_scroll_restore(double value) {
+  pending_scroll_ = value;
+  pending_scroll_restore_ = true;
+  scroll_restore_conn_.disconnect();
+  if (auto adj = list_scroll_.get_vadjustment()) {
+    scroll_restore_conn_ = adj->signal_changed().connect(
+        sigc::mem_fun(*this, &MainWindow::apply_pending_scroll));
+  }
+  scroll_idle_conn_.disconnect();
+  scroll_idle_conn_ = Glib::signal_idle().connect([this]() {
+    if (!pending_scroll_restore_) return false;
+    apply_pending_scroll();
+    pending_scroll_restore_ = false;
+    scroll_restore_conn_.disconnect();
+    return false;
+  });
+}
+
+void MainWindow::apply_pending_scroll() {
+  if (!pending_scroll_restore_) return;
+  if (auto adj = list_scroll_.get_vadjustment()) {
+    adj->set_value(clamp_scroll_value(pending_scroll_, adj->get_upper(), adj->get_page_size()));
   }
 }
 
-void MainWindow::refresh_app_list() {
+void MainWindow::apply_app_snapshot(std::vector<AppEntry> apps, bool x11) {
   update_ram_bar();
 
-  auto apps = enumerate_graphical_apps(getpid());
+  if (!x11) {
+    AppEntry needs;
+    needs.name = "Needs X11";
+    needs.tooltip = "This view needs an X11 display.";
+    needs.protected_app = true;
+    needs.protect_reason = "This view needs X11";
+    needs.rss_known = false;
+    needs.pid = 0;
+    apps.insert(apps.begin(), std::move(needs));
+  }
 
-  // Per-app rows report RssAnon only (private heap). Sum those, then residual
-  // physical used (MemTotal - MemAvailable) minus that sum is LCOS System —
-  // so RssFile / shared library pages and RssShmem are counted once in System,
-  // not double-counted on every GTK app. Clamp if residual would go negative.
-  long apps_rss = 0;
-  for (const auto& a : apps) apps_rss += a.rss_kb;
-
-  long system_kb = info_.used_memory_kb - apps_rss;
-  if (system_kb < 0) system_kb = 0;
+  // Rows already include descendant RssAnon, except a descendant that has
+  // its own row. The remainder is LCOS System. A negative remainder is shown
+  // as a negative figure so the rows are not forced to add up by clamping.
+  long long apps_rss = 0;
+  for (const auto& app : apps) {
+    if (app.rss_known) apps_rss += app.rss_kb;
+  }
+  const long long system_ll =
+      static_cast<long long>(info_.used_memory_kb) - apps_rss;
+  long system_kb = 0;
+  if (system_ll > static_cast<long long>(LONG_MAX)) system_kb = LONG_MAX;
+  else if (system_ll < static_cast<long long>(LONG_MIN)) system_kb = LONG_MIN;
+  else system_kb = static_cast<long>(system_ll);
 
   const AppEntry system_entry = make_system_entry(system_kb);
   if (!system_row_) {
@@ -792,16 +894,6 @@ void MainWindow::refresh_app_list() {
   }
 
   sync_app_rows(apps, force_close_depth_ == 0);
-}
-
-bool MainWindow::entry_still_listed(const AppEntry& entry) const {
-  if (entry.pid <= 1) return false;
-  const std::string key = app_key(entry);
-  const auto apps = enumerate_graphical_apps(getpid());
-  for (const auto& app : apps) {
-    if (app_key(app) == key) return true;
-  }
-  return false;
 }
 
 void MainWindow::on_force_close(const AppEntry& entry_ref) {
@@ -835,7 +927,9 @@ void MainWindow::on_force_close(const AppEntry& entry_ref) {
 
   // pid 0 is LCOS System and kill(0) signals the whole process group.
   if (entry.pid <= 1 || entry.pid == getpid()) return;
-  if (!entry_still_listed(entry)) return;
+  // Recheck this window only. A full client walk here would stall the dialog
+  // and could match a different process than the one the user confirmed.
+  if (!window_xid_matches_pid(entry.xid, entry.pid)) return;
 
   const ProcIdentity after = read_proc_identity(entry.pid);
   if (!after.ok || after.comm != before.comm || after.start_ticks != before.start_ticks) {
@@ -853,14 +947,93 @@ void MainWindow::on_force_close(const AppEntry& entry_ref) {
   // Brief delay then refresh
   Glib::signal_timeout().connect_seconds(
       [this]() {
-        refresh_app_list();
+        schedule_refresh();
         return false;
       },
       1);
 }
 
+void MainWindow::start_refresh_timer() {
+  if (refresh_conn_.connected()) return;
+  refresh_conn_ = Glib::signal_timeout().connect(
+      sigc::mem_fun(*this, &MainWindow::on_refresh_tick), 3000);
+}
+
+void MainWindow::stop_refresh_work() {
+  refresh_conn_.disconnect();
+  probe_conn_.disconnect();
+  probe_.reset();
+  refresh_running_ = false;
+  refresh_queued_ = false;
+}
+
+void MainWindow::on_mapped() {
+  auto window = get_window();
+  if (window && (window->get_state() & Gdk::WINDOW_STATE_ICONIFIED)) {
+    iconified_ = true;
+    return;
+  }
+  iconified_ = false;
+  start_refresh_timer();
+  schedule_refresh();
+}
+
+void MainWindow::on_unmapped() { stop_refresh_work(); }
+
+bool MainWindow::on_window_state(GdkEventWindowState* event) {
+  if (!event) return false;
+  const bool now_iconified =
+      (event->new_window_state & GDK_WINDOW_STATE_ICONIFIED) != 0;
+  if (now_iconified) {
+    iconified_ = true;
+    stop_refresh_work();
+  } else if ((event->changed_mask & GDK_WINDOW_STATE_ICONIFIED) != 0) {
+    iconified_ = false;
+    if (get_mapped()) {
+      start_refresh_timer();
+      schedule_refresh();
+    }
+  }
+  return false;
+}
+
+void MainWindow::schedule_refresh() {
+  if (iconified_ || !get_mapped()) return;
+  if (refresh_running_) {
+    refresh_queued_ = true;
+    return;
+  }
+  refresh_running_ = true;
+  refresh_queued_ = false;
+  probe_ = std::make_unique<AppListRefresh>(getpid());
+  probe_conn_ = Glib::signal_idle().connect(sigc::mem_fun(*this, &MainWindow::on_probe_idle));
+}
+
+bool MainWindow::on_probe_idle() {
+  if (!probe_) {
+    refresh_running_ = false;
+    return false;
+  }
+  if (probe_->step()) return true;
+
+  std::vector<AppEntry> entries = probe_->entries();
+  const bool x11 = probe_->on_x11();
+  probe_.reset();
+  apply_app_snapshot(std::move(entries), x11);
+
+  if (refresh_queued_ && get_mapped() && !iconified_) {
+    refresh_queued_ = false;
+    probe_ = std::make_unique<AppListRefresh>(getpid());
+    return true;
+  }
+  refresh_queued_ = false;
+  refresh_running_ = false;
+  return false;
+}
+
 bool MainWindow::on_refresh_tick() {
-  refresh_app_list();
+  if (iconified_ || !get_mapped()) return true;
+  schedule_refresh();
   return true;
 }
 
