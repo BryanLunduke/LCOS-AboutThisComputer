@@ -15,6 +15,7 @@ public:
 
   pid_t pid() const { return entry_.pid; }
   const AppEntry& entry() const { return entry_; }
+  bool menu_posted() const { return menu_posted_; }
   void update_entry(const AppEntry& entry);
 
   using ForceCloseHandler = std::function<void(const AppEntry&)>;
@@ -41,6 +42,7 @@ private:
   Gtk::Menu menu_;
   Gtk::MenuItem item_;
   bool menu_attached_ = false;
+  bool menu_posted_ = false;
 };
 
 }  // namespace lundukeabout

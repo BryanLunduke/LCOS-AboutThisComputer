@@ -66,6 +66,8 @@ AppRow::AppRow(const AppEntry& entry) : entry_(entry) {
   menu_.attach_to_widget(*this);
   menu_attached_ = true;
   item_.signal_activate().connect(sigc::mem_fun(*this, &AppRow::on_force_close));
+  menu_.signal_deactivate().connect([this]() { menu_posted_ = false; });
+  menu_.signal_selection_done().connect([this]() { menu_posted_ = false; });
   menu_.append(item_);
 
   if (entry.icon) shown_icon_ = entry.icon;
@@ -74,6 +76,7 @@ AppRow::AppRow(const AppEntry& entry) : entry_(entry) {
 }
 
 AppRow::~AppRow() {
+  menu_posted_ = false;
   if (menu_attached_ && menu_.get_attach_widget()) menu_.detach();
   menu_attached_ = false;
 }
@@ -91,9 +94,15 @@ void AppRow::update_entry(const AppEntry& entry) {
   }
   if (mem_changed) mem_label_.set_text(memory_caption(entry_));
   if (prot_changed) name_.set_sensitive(!entry_.protected_app);
-  if (entry_.icon && !same_pixbuf(shown_icon_, entry_.icon)) {
-    icon_.set(entry_.icon);
-    shown_icon_ = entry_.icon;
+  if (entry_.icon) {
+    if (!same_pixbuf(shown_icon_, entry_.icon)) {
+      icon_.set(entry_.icon);
+      shown_icon_ = entry_.icon;
+    }
+  } else if (shown_icon_) {
+    icon_.set_from_icon_name("application-x-executable", Gtk::ICON_SIZE_DND);
+    icon_.set_pixel_size(32);
+    shown_icon_.reset();
   }
 }
 
@@ -125,6 +134,7 @@ bool AppRow::on_button_press_event(GdkEventButton* event) {
     }
     rebuild_menu_item();
     menu_.show_all();
+    menu_posted_ = true;
     menu_.popup_at_pointer(reinterpret_cast<const GdkEvent*>(event));
     return true;
   }
