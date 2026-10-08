@@ -10,9 +10,10 @@ namespace lundukeabout {
 
 struct SystemInfo {
   std::string os_pretty;      // e.g. "LCOS 0.7"
-  std::string total_memory;   // e.g. "16.0 GB"
+  std::string total_memory;   // e.g. "16.0 GB", or "Unknown"
   std::string cpu_model;      // from /proc/cpuinfo
   std::string gpu;            // sysfs + pci.ids
+  bool memory_known = false;  // false when MemTotal was not in meminfo
   long total_memory_kb = 0;
   long available_memory_kb = 0;  // MemAvailable
   long used_memory_kb = 0;       // MemTotal - MemAvailable
@@ -42,6 +43,7 @@ std::string os_display_name(const OsRelease& host, const OsRelease& fallback,
                             bool allow_fallback);
 
 struct MemInfoSnapshot {
+  bool saw_total = false;
   bool saw_available = false;
   long total_kb = 0;
   long available_kb = 0;
@@ -51,15 +53,27 @@ struct MemInfoSnapshot {
 };
 
 struct MemoryUsage {
+  // false when MemTotal was absent. The fields are then not a measurement.
+  bool known = false;
   long total_kb = 0;
   long available_kb = 0;
   long used_kb = 0;
 };
 
 MemInfoSnapshot parse_meminfo(std::istream& in);
-// MemAvailable 0 is real. Only a missing MemAvailable field uses
-// MemFree + Buffers + Cached.
+// MemAvailable 0 is real when MemTotal was present. A missing MemAvailable
+// field uses MemFree + Buffers + Cached. A missing MemTotal is unknown.
 MemoryUsage memory_usage_from_meminfo(const MemInfoSnapshot& snap);
+
+// First non-empty "model name". Empty values are skipped. Hardware, then
+// Processor, are used only when every model name is empty. "Unknown CPU"
+// when the stream has none of those.
+std::string cpu_model_from_cpuinfo(std::istream& in);
+
+// No display PCI device and no DRM card. Xvfb keeps its own string. The
+// other named virtual servers are "Virtual display". Anything else, including
+// an empty comm list, stays "Unknown GPU".
+std::string virtual_display_label_from_comms(const std::vector<std::string>& comms);
 
 // Directory fd for /proc/<pid> (O_PATH when the kernel accepts it). -1 on failure.
 int open_proc_pid_dir(pid_t pid);

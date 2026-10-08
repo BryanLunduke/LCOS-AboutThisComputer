@@ -26,7 +26,9 @@ struct AppEntry {
   std::string comm;
   unsigned long long start_ticks = 0;
   bool identity_ok = false;
-  // Root and descendants whose RssAnon is included in rss_kb.
+  // Raw UTF-8 WM_CLASS class, before a disambiguating title or pid suffix.
+  std::string class_name;
+  // Root and descendants whose anonymous charge is included in rss_kb.
   std::vector<ProcPin> kill_pins;
 };
 

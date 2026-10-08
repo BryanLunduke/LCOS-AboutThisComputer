@@ -746,6 +746,15 @@ void AppListRefresh::Impl::read_one_proc() {
       }
     }
   }
+  SmapsRollup rollup;
+  bool have_rollup = false;
+  const int rollup_fd = ::openat(dirfd, "smaps_rollup", O_RDONLY | O_CLOEXEC);
+  if (rollup_fd >= 0) {
+    const std::string rollup_text = read_fd_limited(rollup_fd);
+    ::close(rollup_fd);
+    rollup = parse_smaps_rollup(rollup_text);
+    have_rollup = true;
+  }
   const ProcSnapshot after = read_proc_snapshot_at(dirfd);
   ::close(dirfd);
   // The pid was recycled between the two stat reads, or status never opened.
@@ -756,6 +765,9 @@ void AppListRefresh::Impl::read_one_proc() {
     start_ticks_.erase(pid);
     return;
   }
+  // Pss_Anon counts a shared anonymous page once across this process and the
+  // helpers rolled into the same row. RssAnon repeats those pages.
+  rss = process_anon_charge_kb(have_rollup, rollup, rss);
   rss_kb_[pid] = rss;
   start_ticks_[pid] = before.start_ticks;
   if (ppid > 0 && ppid != pid) children_[ppid].push_back(pid);
@@ -778,6 +790,7 @@ void AppListRefresh::Impl::assemble() {
     entry.protected_app = g.protected_app;
     entry.protect_reason = g.protect_reason;
     entry.comm = g.comm;
+    entry.class_name = g.class_name;
     entry.start_ticks = g.start_ticks;
     entry.identity_ok = g.identity_ok;
     if (g.has_pid && g.identity_ok) {

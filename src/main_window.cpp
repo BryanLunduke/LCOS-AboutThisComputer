@@ -71,9 +71,13 @@ window.lunduke-about * {
   color: #5a5a5a;
 }
 .platinum-list row,
-.platinum-list .app-row-bg {
+.platinum-list .app-row-bg,
+.platinum-list .app-row {
   background-color: #ffffff;
   color: #1a1a1a;
+}
+.platinum-list .app-row:focus {
+  background-color: #e4eaf6;
 }
 .about-header {
   background-color: @theme_bg_color;
@@ -131,16 +135,6 @@ int signal_pidfd(int pidfd, int sig) {
 #endif
 }
 
-bool same_display_name(const std::string& name, const std::string& comm) {
-  if (name.size() != comm.size()) return false;
-  for (size_t i = 0; i < name.size(); ++i) {
-    const unsigned char a = static_cast<unsigned char>(name[i]);
-    const unsigned char b = static_cast<unsigned char>(comm[i]);
-    if (std::tolower(a) != std::tolower(b)) return false;
-  }
-  return true;
-}
-
 void show_notice(Gtk::Window& parent, const std::string& text, const std::string& secondary) {
   Gtk::MessageDialog err(parent, text, false, Gtk::MESSAGE_ERROR, Gtk::BUTTONS_OK, true);
   if (!secondary.empty()) err.set_secondary_text(secondary);
@@ -159,6 +153,14 @@ int positive_height(Gtk::Widget& widget, int fallback) {
 }
 
 }  // namespace
+
+void set_info_label(Gtk::Label& label, const std::string& text) {
+  label.set_text(text);
+  label.set_halign(Gtk::ALIGN_START);
+  label.set_ellipsize(Pango::ELLIPSIZE_END);
+  label.set_max_width_chars(36);
+  label.set_tooltip_text(text);
+}
 
 SupportersNamesView::SupportersNamesView() {
   set_halign(Gtk::ALIGN_FILL);
@@ -499,20 +501,10 @@ MainWindow::MainWindow() {
   right_col->set_halign(Gtk::ALIGN_START);
   right_col->set_hexpand(true);
 
-  os_label_.set_text("OS Version:  " + info_.os_pretty);
-  os_label_.set_halign(Gtk::ALIGN_START);
-  mem_label_.set_text("Built-in Memory:  " + info_.total_memory);
-  mem_label_.set_halign(Gtk::ALIGN_START);
-  cpu_label_.set_text("CPU:  " + info_.cpu_model);
-  cpu_label_.set_halign(Gtk::ALIGN_START);
-  cpu_label_.set_ellipsize(Pango::ELLIPSIZE_END);
-  cpu_label_.set_max_width_chars(36);
-  cpu_label_.set_tooltip_text("CPU:  " + info_.cpu_model);
-  gpu_label_.set_text("GPU:  " + info_.gpu);
-  gpu_label_.set_halign(Gtk::ALIGN_START);
-  gpu_label_.set_ellipsize(Pango::ELLIPSIZE_END);
-  gpu_label_.set_max_width_chars(36);
-  gpu_label_.set_tooltip_text("GPU:  " + info_.gpu);
+  set_info_label(os_label_, "OS Version:  " + info_.os_pretty);
+  set_info_label(mem_label_, "Built-in Memory:  " + info_.total_memory);
+  set_info_label(cpu_label_, "CPU:  " + info_.cpu_model);
+  set_info_label(gpu_label_, "GPU:  " + info_.gpu);
 
   left_col->pack_start(os_label_, Gtk::PACK_SHRINK);
   left_col->pack_start(mem_label_, Gtk::PACK_SHRINK);
@@ -528,6 +520,11 @@ MainWindow::MainWindow() {
   root_.pack_start(ram_bar_, Gtk::PACK_SHRINK);
   update_ram_bar();
 
+  // LCOS System is pinned under the bar so the default 520×360 window
+  // still shows it. The scroller below is only the other rows.
+  system_slot_.set_hexpand(true);
+  root_.pack_start(system_slot_, Gtk::PACK_SHRINK);
+
   // 4. Scrollable app list in beveled frame
   auto* frame = Gtk::make_managed<Gtk::Frame>();
   frame->set_shadow_type(Gtk::SHADOW_IN);
@@ -536,8 +533,13 @@ MainWindow::MainWindow() {
   frame->set_vexpand(true);
 
   list_scroll_.set_policy(Gtk::POLICY_NEVER, Gtk::POLICY_AUTOMATIC);
+  // Overlay scrollbars stay invisible until hover. This list should show
+  // the bar whenever the rows do not fit.
+  list_scroll_.set_overlay_scrolling(false);
   list_scroll_.get_style_context()->add_class("platinum-scroll");
-  list_scroll_.set_min_content_height(100);
+  // Shorter than the old 100px so the pinned LCOS System row still fits
+  // inside the 360px window.
+  list_scroll_.set_min_content_height(64);
 
   list_box_.get_style_context()->add_class("platinum-list");
   list_box_.set_homogeneous(false);
@@ -546,7 +548,9 @@ MainWindow::MainWindow() {
   frame->add(list_scroll_);
   root_.pack_start(*frame, Gtk::PACK_EXPAND_WIDGET);
 
-  list_scroll_.signal_size_allocate().connect(
+  // The box allocation is the one that places each row. The scrolled
+  // window can allocate before those y positions exist.
+  list_box_.signal_size_allocate().connect(
       sigc::mem_fun(*this, &MainWindow::on_list_scroll_allocate));
   signal_map().connect(sigc::mem_fun(*this, &MainWindow::on_mapped));
   signal_unmap().connect(sigc::mem_fun(*this, &MainWindow::on_unmapped));
@@ -725,12 +729,31 @@ void MainWindow::load_supporters() {
 
 void MainWindow::update_ram_bar() {
   refresh_memory_usage(info_);
+  if (!info_.memory_known) {
+    info_.total_memory = "Unknown";
+    info_.total_memory_kb = 0;
+    info_.used_memory_kb = 0;
+    info_.available_memory_kb = 0;
+    set_info_label(mem_label_, "Built-in Memory:  Unknown");
+    ram_bar_.set_unknown();
+    return;
+  }
   const MemoryReadout readout =
       format_memory_readout(info_.used_memory_kb, info_.total_memory_kb);
   info_.total_memory = readout.total;
-  mem_label_.set_text("Built-in Memory:  " + readout.total);
+  set_info_label(mem_label_, "Built-in Memory:  " + readout.total);
   ram_bar_.set_memory(info_.used_memory_kb, info_.total_memory_kb, readout.used,
                       readout.free);
+}
+
+void MainWindow::ensure_system_row(const AppEntry& entry) {
+  if (!system_row_) {
+    system_row_ = Gtk::manage(new AppRow(entry));
+    system_slot_.pack_start(*system_row_, Gtk::PACK_SHRINK);
+    system_row_->show_all();
+  } else {
+    system_row_->update_entry(entry);
+  }
 }
 
 AppEntry MainWindow::make_system_entry(long system_kb, const std::string& tooltip) {
@@ -777,13 +800,10 @@ void MainWindow::sync_app_rows(const std::vector<AppEntry>& apps, bool allow_str
     return;
   }
 
-  double saved_scroll = 0.0;
   bool restore_scroll = false;
   if (!same_set) {
-    if (auto adj = list_scroll_.get_vadjustment()) {
-      saved_scroll = adj->get_value();
-      restore_scroll = true;
-    }
+    capture_scroll_anchor();
+    restore_scroll = true;
   }
 
   if (!same_set) {
@@ -843,40 +863,99 @@ void MainWindow::sync_app_rows(const std::vector<AppEntry>& apps, bool allow_str
       if (it->second.sep) list_box_.reorder_child(*it->second.sep, pos++);
       ordered.push_back(it->second);
     }
-    if (system_row_) list_box_.reorder_child(*system_row_, pos);
     app_rows_ = std::move(ordered);
   }
 
-  if (restore_scroll) arm_scroll_restore(saved_scroll);
+  if (restore_scroll) arm_scroll_restore();
 }
 
 void MainWindow::on_list_scroll_allocate(Gtk::Allocation& /*allocation*/) {
-  if (pending_scroll_restore_) apply_pending_scroll();
+  if (!pending_scroll_restore_) return;
+  scroll_layout_since_arm_ = true;
+  if (apply_pending_scroll()) finish_scroll_restore();
 }
 
-void MainWindow::arm_scroll_restore(double value) {
-  pending_scroll_ = value;
+void MainWindow::capture_scroll_anchor() {
+  anchor_key_.clear();
+  anchor_delta_ = 0.0;
+  anchor_fallback_ = 0.0;
+  auto adj = list_scroll_.get_vadjustment();
+  if (!adj) return;
+  anchor_fallback_ = adj->get_value();
+  const double value = anchor_fallback_;
+  for (const auto& item : app_rows_) {
+    if (!item.row) continue;
+    const int y = item.row->get_allocation().get_y();
+    const int h = item.row->get_allocation().get_height();
+    if (h <= 1) continue;
+    if (static_cast<double>(y) + h > value + 0.5) {
+      anchor_key_ = item.key;
+      anchor_delta_ = value - static_cast<double>(y);
+      return;
+    }
+  }
+}
+
+void MainWindow::finish_scroll_restore() {
+  pending_scroll_restore_ = false;
+  scroll_layout_since_arm_ = false;
+  scroll_restore_conn_.disconnect();
+  scroll_idle_conn_.disconnect();
+}
+
+void MainWindow::arm_scroll_restore() {
   pending_scroll_restore_ = true;
+  scroll_layout_since_arm_ = false;
+  scroll_restore_tries_ = 0;
+  // reorder_child queues a resize. Ask again so a same-sized list still
+  // allocates and the anchor can be read from the new row positions.
+  list_box_.queue_resize();
   scroll_restore_conn_.disconnect();
   if (auto adj = list_scroll_.get_vadjustment()) {
-    scroll_restore_conn_ = adj->signal_changed().connect(
-        sigc::mem_fun(*this, &MainWindow::apply_pending_scroll));
+    scroll_restore_conn_ = adj->signal_changed().connect([this]() {
+      if (apply_pending_scroll()) finish_scroll_restore();
+    });
   }
   scroll_idle_conn_.disconnect();
   scroll_idle_conn_ = Glib::signal_idle().connect([this]() {
     if (!pending_scroll_restore_) return false;
-    apply_pending_scroll();
-    pending_scroll_restore_ = false;
-    scroll_restore_conn_.disconnect();
-    return false;
+    if (apply_pending_scroll()) {
+      finish_scroll_restore();
+      return false;
+    }
+    // Do not clamp onto a short upper and then forget the anchor.
+    if (++scroll_restore_tries_ > 30) {
+      finish_scroll_restore();
+      return false;
+    }
+    return true;
   });
 }
 
-void MainWindow::apply_pending_scroll() {
-  if (!pending_scroll_restore_) return;
-  if (auto adj = list_scroll_.get_vadjustment()) {
-    adj->set_value(clamp_scroll_value(pending_scroll_, adj->get_upper(), adj->get_page_size()));
+bool MainWindow::apply_pending_scroll() {
+  if (!pending_scroll_restore_ || !scroll_layout_since_arm_) return false;
+  auto adj = list_scroll_.get_vadjustment();
+  if (!adj) return false;
+  const double upper = adj->get_upper();
+  const double page = adj->get_page_size();
+  Gtk::Widget* target = nullptr;
+  for (const auto& item : app_rows_) {
+    if (item.key == anchor_key_ && item.row) target = item.row;
   }
+  if (target) {
+    const int y = target->get_allocation().get_y();
+    const int h = target->get_allocation().get_height();
+    if (h <= 1) return false;
+    const auto restored = restore_anchored_scroll(
+        true, static_cast<double>(y), anchor_delta_, static_cast<double>(y) + h, upper, page);
+    if (!restored) return false;
+    adj->set_value(*restored);
+    return true;
+  }
+  // The anchored row left the list. The post-layout upper is the real one.
+  if (upper <= 1.0) return false;
+  adj->set_value(clamp_scroll_value(anchor_fallback_, upper, page));
+  return true;
 }
 
 void MainWindow::apply_app_snapshot(std::vector<AppEntry> apps, bool x11) {
@@ -893,28 +972,30 @@ void MainWindow::apply_app_snapshot(std::vector<AppEntry> apps, bool x11) {
     apps.insert(apps.begin(), std::move(needs));
   }
 
-  // Each pid's RssAnon is subtracted once. Shared anonymous pages can still
-  // make the raw remainder negative; that figure is kept in the tooltip and
-  // the row shows 0.
-  std::vector<ProcPin> pins;
-  for (const auto& app : apps) {
-    if (!app.rss_known) continue;
-    pins.insert(pins.end(), app.kill_pins.begin(), app.kill_pins.end());
-  }
-  const long long apps_rss = sum_rss_once(pins);
-  const SystemRemainder remainder = system_remainder_kb(info_.used_memory_kb, apps_rss);
-  std::string system_tip = "LCOS System";
-  if (remainder.clamped) {
-    system_tip += "\nUnclamped remainder: " + std::to_string(remainder.raw_kb) + " kB";
-  }
-  const AppEntry system_entry = make_system_entry(remainder.shown_kb, system_tip);
-  if (!system_row_) {
-    system_row_ = Gtk::manage(new AppRow(system_entry));
-    list_box_.pack_start(*system_row_, Gtk::PACK_SHRINK);
-    system_row_->show_all();
+  // Each pid's anonymous charge is subtracted once. Pss_Anon already splits
+  // shared anonymous pages. A negative remainder is kept in the tooltip and
+  // the row shows 0. Missing MemTotal is not a measurement: the row is an
+  // em dash and the bar stays empty.
+  AppEntry system_entry;
+  if (!info_.memory_known) {
+    system_entry = make_system_entry(0, "LCOS System");
+    system_entry.rss_known = false;
+    system_entry.rss_kb = 0;
   } else {
-    system_row_->update_entry(system_entry);
+    std::vector<ProcPin> pins;
+    for (const auto& app : apps) {
+      if (!app.rss_known) continue;
+      pins.insert(pins.end(), app.kill_pins.begin(), app.kill_pins.end());
+    }
+    const long long apps_rss = sum_rss_once(pins);
+    const SystemRemainder remainder = system_remainder_kb(info_.used_memory_kb, apps_rss);
+    std::string system_tip = "LCOS System";
+    if (remainder.clamped) {
+      system_tip += "\nUnclamped remainder: " + std::to_string(remainder.raw_kb) + " kB";
+    }
+    system_entry = make_system_entry(remainder.shown_kb, system_tip);
   }
+  ensure_system_row(system_entry);
 
   sync_app_rows(apps, force_close_depth_ == 0);
   last_snapshot_ = std::chrono::steady_clock::now();
@@ -971,28 +1052,42 @@ bool MainWindow::signal_pinned_pid(pid_t pid, unsigned long long expected_start,
   const ProcSnapshot again = read_proc_snapshot_at(dirfd);
   ::close(dirfd);
   if (!may_signal_pinned_pid(pid, getpid(), expected_start, again.ok, again.start_ticks, false) ||
-      (require_comm && again.comm != expected_comm)) {
+      (require_comm && again.ok && again.comm != expected_comm)) {
     if (pidfd >= 0) ::close(pidfd);
-    why = "That PID changed before it could be closed and was not signalled.";
+    why = again.ok ? "That PID changed before it could be closed and was not signalled."
+                   : "Already exited.";
     return false;
   }
-  if (pidfd >= 0) {
+  const PidfdOpenAction opened = pidfd_open_action(pidfd, pidfd_err);
+  if (opened == PidfdOpenAction::AlreadyExited) {
+    why = "Already exited.";
+    return false;
+  }
+  if (opened == PidfdOpenAction::SendOnPidfd) {
     if (signal_pidfd(pidfd, SIGKILL) == 0) {
       ::close(pidfd);
       return true;
     }
     const int err = errno;
     ::close(pidfd);
-    if (err != ENOSYS) {
-      why = std::strerror(err);
+    const PidfdSignalFailure failure = pidfd_signal_failure(err);
+    if (failure == PidfdSignalFailure::AlreadyExited) {
+      why = "Already exited.";
       return false;
     }
-  } else if (pidfd_err != ENOSYS) {
-    why = "Already exited.";
-    return false;
+    if (failure == PidfdSignalFailure::ReportErrno) {
+      why = force_close_errno_message(pid, err);
+      return false;
+    }
+    // ENOSYS: the pin could not be signalled. kill() is the same fallback
+    // as a kernel without pidfd, after the start-time check above.
   }
   if (::kill(pid, SIGKILL) != 0) {
-    why = std::strerror(errno);
+    if (errno == ESRCH) {
+      why = "Already exited.";
+      return false;
+    }
+    why = force_close_errno_message(pid, errno);
     return false;
   }
   return true;
@@ -1029,23 +1124,12 @@ void MainWindow::on_force_close(const AppEntry& entry_ref) {
     return;
   }
 
-  const std::string shown = entry.comm.empty() ? entry.name : entry.comm;
-  Gtk::MessageDialog dlg(*this, "Force Close \"" + shown + "\"?", false, Gtk::MESSAGE_WARNING,
-                         Gtk::BUTTONS_NONE, true);
-  std::string secondary =
-      "This will send SIGKILL to PID " + std::to_string(entry.pid) + " (" + entry.comm + ").\n";
-  if (!entry.name.empty() && !same_display_name(entry.name, entry.comm)) {
-    secondary += "Window class \"" + entry.name + "\" does not match that command.\n";
-  }
   const bool window_still_there = window_xid_matches_pid(entry.xid, entry.pid);
-  if (!window_still_there) {
-    secondary += "The listed window is already gone. The process is still closed when "
-                 "its command and start time match this refresh.\n";
-  }
-  secondary +=
-      "Helper processes included in this row's RAM are signalled after their start time "
-      "is checked.\nUnsaved work in that application may be lost.";
-  dlg.set_secondary_text(secondary);
+  const ForceClosePrompt prompt = force_close_prompt(
+      entry.name, entry.comm, entry.pid, entry.class_name, window_still_there);
+  Gtk::MessageDialog dlg(*this, prompt.primary, false, Gtk::MESSAGE_WARNING, Gtk::BUTTONS_NONE,
+                         true);
+  dlg.set_secondary_text(prompt.secondary);
   dlg.add_button("Cancel", Gtk::RESPONSE_CANCEL);
   dlg.add_button("Force Close", Gtk::RESPONSE_ACCEPT);
   dlg.set_default_response(Gtk::RESPONSE_CANCEL);
@@ -1068,19 +1152,36 @@ void MainWindow::on_force_close(const AppEntry& entry_ref) {
     if (pid > 1 && pid != entry.pid) other_rows.insert(pid);
   }
 
-  for (const auto& pin : entry.kill_pins) {
-    if (pin.pid == entry.pid) continue;
-    const bool other = other_rows.count(pin.pid) != 0;
-    std::string why;
-    signal_pinned_pid(pin.pid, pin.start_ticks, other, false, "", why);
-  }
-
+  const ForceCloseOrder order = force_close_signal_order(entry.pid, entry.kill_pins);
   std::string why;
-  if (!signal_pinned_pid(entry.pid, entry.start_ticks, false, true, entry.comm, why)) {
-    show_notice(*this, why == "Already exited." ? "Already exited." : "Could not force-close process.",
-                why);
+  const bool root_ok =
+      signal_pinned_pid(order.root, entry.start_ticks, false, true, entry.comm, why);
+  if (!force_close_should_signal_helpers(root_ok)) {
+    if (why == "Already exited.") {
+      show_notice(*this, "Already exited.",
+                  "PID " + std::to_string(entry.pid) + " is no longer running.");
+    } else {
+      show_notice(*this, "Could not force-close process.", why);
+    }
     arm_force_close_refresh();
     return;
+  }
+
+  HelperCloseReport report;
+  helper_close_note(report, order.root, true, "");
+  for (pid_t helper : order.helpers) {
+    const auto pin = std::find_if(entry.kill_pins.begin(), entry.kill_pins.end(),
+                                  [helper](const ProcPin& item) { return item.pid == helper; });
+    if (pin == entry.kill_pins.end()) continue;
+    const bool other = other_rows.count(helper) != 0;
+    std::string helper_why;
+    const bool ok =
+        signal_pinned_pid(helper, pin->start_ticks, other, false, "", helper_why);
+    helper_close_note(report, helper, ok, helper_why);
+  }
+  const std::string extra = helper_close_message(report);
+  if (!extra.empty()) {
+    show_notice(*this, "Could not force-close every helper.", extra);
   }
   arm_force_close_refresh();
 }

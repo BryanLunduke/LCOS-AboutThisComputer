@@ -47,6 +47,28 @@ about_logic_test = executable(
 )
 test('about-logic', about_logic_test, timeout: 60)
 
+about_ui_test = executable(
+  'about-ui-test',
+  files(
+    'tests/ui_test.cpp',
+    'src/main_window.cpp',
+    'src/system_info.cpp',
+    'src/about_logic.cpp',
+    'src/window_enum.cpp',
+    'src/app_row.cpp',
+    'src/memory_bar.cpp',
+  ),
+  dependencies: [gtkmm_dep, gdk_x11_dep, x11_dep, gdkpixbuf_dep],
+  include_directories: lunduke_about_inc,
+)
+xvfb_run = find_program('xvfb-run', required: true)
+test(
+  'about-ui',
+  xvfb_run,
+  args: ['-a', '-s', '-screen 0 1280x800x24', about_ui_test],
+  timeout: 120,
+)
+
 executable(
   'lunduke-about',
   lunduke_about_sources,

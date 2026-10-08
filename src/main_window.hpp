@@ -80,6 +80,9 @@ private:
   void arm_force_close_refresh();
   bool signal_pinned_pid(pid_t pid, unsigned long long expected_start, bool other_row,
                          bool require_comm, const std::string& expected_comm, std::string& why);
+  void ensure_system_row(const AppEntry& entry);
+  void capture_scroll_anchor();
+  void finish_scroll_restore();
   bool on_refresh_tick();
   void on_mapped();
   void on_unmapped();
@@ -90,8 +93,9 @@ private:
   bool on_probe_idle();
   void apply_app_snapshot(std::vector<AppEntry> apps, bool x11);
   void on_list_scroll_allocate(Gtk::Allocation& allocation);
-  void arm_scroll_restore(double value);
-  void apply_pending_scroll();
+  void arm_scroll_restore();
+  // true once the saved row is back at the top of the viewport.
+  bool apply_pending_scroll();
   std::string find_data_file(const std::string& relative) const;
 
   struct AppListItem {
@@ -118,6 +122,8 @@ private:
   Gtk::Label cpu_label_;
   Gtk::Label gpu_label_;
   MemoryBar ram_bar_;
+  // LCOS System stays here, under the RAM bar and outside the scroller.
+  Gtk::Box system_slot_{Gtk::ORIENTATION_VERTICAL, 0};
   Gtk::ScrolledWindow list_scroll_;
   Gtk::Box list_box_{Gtk::ORIENTATION_VERTICAL, 0};
   std::vector<AppListItem> app_rows_;
@@ -140,7 +146,14 @@ private:
   bool refresh_followup_ = false;
   std::chrono::steady_clock::time_point last_snapshot_{};
   bool pending_scroll_restore_ = false;
-  double pending_scroll_ = 0.0;
+  bool scroll_layout_since_arm_ = false;
+  int scroll_restore_tries_ = 0;
+  std::string anchor_key_;
+  double anchor_delta_ = 0.0;
+  double anchor_fallback_ = 0.0;
 };
+
+// Ellipsize a stats label and keep the full string in the tooltip.
+void set_info_label(Gtk::Label& label, const std::string& text);
 
 }  // namespace lundukeabout
