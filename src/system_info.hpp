@@ -5,6 +5,7 @@
 
 #include <iosfwd>
 #include <string>
+#include <sys/types.h>
 
 namespace lundukeabout {
 
@@ -65,14 +66,36 @@ MemInfoSnapshot parse_meminfo(std::istream& in);
 // field uses MemFree + Buffers + Cached. A missing MemTotal is unknown.
 MemoryUsage memory_usage_from_meminfo(const MemInfoSnapshot& snap);
 
-// First non-empty "model name". Empty values are skipped. Hardware, then
-// Processor, are used only when every model name is empty. "Unknown CPU"
-// when the stream has none of those.
+// CPU line from /proc/cpuinfo. Empty model names are skipped. Hardware, then
+// Processor, are used only when every model name is empty ("Unknown CPU"
+// when none of those exist). When logical processors are present, the line
+// includes a core count and a thread count. Differing model names are listed
+// in first-seen order, each with its own counts.
 std::string cpu_model_from_cpuinfo(std::istream& in);
 
-// Local display number from a DISPLAY spec (:1, :1.0, unix:1, localhost:1,
-// 127.0.0.1:1). nullopt when the spec is empty, not a display, or names
-// another machine. A background X server on this host is not a substitute.
+// [protocol/]host:display[.screen]. IPv6 hosts are bracketed ([::1]:N).
+enum class XDisplayTransport {
+  Invalid,
+  LocalUnix,  // SO_PEERCRED applies: :N, unix:N, unix/:N, unix/host:N
+  LocalTcp,   // loopback over tcp/inet/inet6; peer credentials do not apply
+  Remote,
+};
+
+struct XDisplayParsed {
+  bool ok = false;
+  XDisplayTransport transport = XDisplayTransport::Invalid;
+  std::string protocol;
+  std::string host;
+  int display = -1;
+  int screen = 0;
+  bool has_screen = false;
+};
+
+XDisplayParsed parse_x_display(const std::string& spec);
+
+// Display number when the server is on this machine (local unix or local
+// TCP). nullopt when the spec is empty, not a display, or names another
+// machine. A background X server on this host is not a substitute.
 std::optional<int> local_x_display_number(const std::string& spec);
 
 // Listening entry from /proc/net/unix. Connected clients are omitted.
@@ -95,9 +118,37 @@ bool x_socket_path_matches_display(const std::string& path, int display);
 // display numbers are ignored. Empty when nothing matches.
 std::string server_comm_for_display(int display, const std::vector<XListenSocket>& sockets,
                                    const std::vector<ProcessSocket>& processes);
-// /proc comm of the server that owns this DISPLAY spec. Empty when the spec
-// is not local or the listener's comm cannot be read.
+// Credentials of the process at the far end of a connected socket.
+// supported is false when SO_PEERCRED does not apply (TCP, or not a socket).
+// comm is /proc/<pid>/comm, then the comm field of /proc/<pid>/stat.
+// /proc/<pid>/fd is not consulted: that directory is not readable for a
+// root-owned server, while comm is. comm is empty when neither file can
+// be read (hidepid); have_pid is still set.
+struct XPeerCred {
+  bool supported = false;
+  bool have_pid = false;
+  pid_t pid = 0;
+  uid_t uid = static_cast<uid_t>(-1);
+  std::string comm;
+};
+
+XPeerCred x_peer_cred_from_fd(int fd);
+// World-readable comm for pid. Empty when pid is not readable. Does not
+// open /proc/<pid>/fd.
+std::string comm_of_pid(pid_t pid);
+
+// /proc comm of the server that owns this DISPLAY spec. A local unix spec
+// is identified with SO_PEERCRED on an X connection (XConnectionNumber),
+// not by scanning the process list. Local TCP falls back to that scan.
+// Empty when the spec is remote, not a display, or the comm cannot be read.
 std::string server_comm_owning_display(const std::string& display_spec);
+
+// GPU label for the X server on connection_fd (the fd from XConnectionNumber).
+// A peer pid from SO_PEERCRED wins over display_spec, so a --display that
+// disagrees with the spec cannot name a different server. When the fd is
+// not a unix socket, local TCP uses the proc fallback and a remote spec is
+// "Remote display" rather than a false "Unknown GPU".
+std::string gpu_label_for_x_connection(int connection_fd, const std::string& display_spec);
 
 // Label for that one server. "Virtual framebuffer (Xvfb)" only when `comm`
 // is Xvfb. Xtigervnc, Xvnc, and Xephyr are "Virtual display". Any other
@@ -109,7 +160,14 @@ int open_proc_pid_dir(pid_t pid);
 ProcSnapshot read_proc_snapshot_at(int dirfd);
 ProcSnapshot read_proc_snapshot(pid_t pid);
 
-SystemInfo gather_system_info();
+// x_connection_fd is XConnectionNumber of the display the window opened,
+// or -1 when there is no live X connection. x_display_name is that
+// display's name; an empty string uses getenv("DISPLAY").
+SystemInfo gather_system_info(int x_connection_fd = -1,
+                              const std::string& x_display_name = {});
+// Display-class devices under a sysfs pci devices directory
+// (/sys/bus/pci/devices, or a fixture laid out the same way).
+std::vector<GpuDevice> gpu_devices_from_sysfs(const std::string& devices_dir);
 // Re-read /proc/meminfo used/available (for live RAM bar refresh).
 void refresh_memory_usage(SystemInfo& info);
 std::string format_memory_human(long kb);

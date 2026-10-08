@@ -527,47 +527,118 @@ PciDb parse_pci_ids(std::istream& in) {
   return db;
 }
 
+namespace {
+
+std::string pci_card_key(const std::string& slot) {
+  const auto dot = slot.rfind('.');
+  if (dot == std::string::npos || dot + 1 >= slot.size()) return slot;
+  for (size_t i = dot + 1; i < slot.size(); ++i) {
+    if (!std::isdigit(static_cast<unsigned char>(slot[i]))) return slot;
+  }
+  return slot.substr(0, dot);
+}
+
+std::string gpu_device_piece(const GpuDevice& dev, const PciDb& db) {
+  const auto vendor = db.vendors.find(dev.vendor);
+  std::string device_name;
+  const auto devs = db.devices.find(dev.vendor);
+  if (devs != db.devices.end()) {
+    const auto found = devs->second.find(dev.device);
+    if (found != devs->second.end()) device_name = found->second;
+  }
+  if (vendor != db.vendors.end() && !device_name.empty()) {
+    return vendor->second + " " + device_name;
+  }
+  char buf[80];
+  std::snprintf(buf, sizeof(buf), "PCI 0x%04x:0x%04x", dev.vendor, dev.device);
+  std::string piece = buf;
+  if (!dev.driver.empty()) piece += " (" + dev.driver + ")";
+  return piece;
+}
+
+bool piece_is_named(const std::string& piece) {
+  return piece.compare(0, 4, "PCI ") != 0;
+}
+
+struct GpuCard {
+  std::string key;
+  std::string slot;
+  bool have_vga = false;
+  bool have_3d = false;
+  bool have_other = false;
+  size_t vga = 0;
+  size_t three_d = 0;
+  size_t other = 0;
+};
+
+int gpu_card_rank(const GpuCard& card) {
+  // The panel's display controller before a discrete 3D controller.
+  if (card.have_vga) return 0;
+  if (card.have_3d) return 1;
+  return 2;
+}
+
+}  // namespace
+
 std::string gpu_label_from_devices(const std::vector<GpuDevice>& devices,
                                    const PciDb& db) {
-  std::vector<size_t> display;
-  bool any_3d = false;
-  bool any_vga = false;
+  std::vector<GpuCard> cards;
   for (size_t i = 0; i < devices.size(); ++i) {
     if (!is_display_class(devices[i].class_code)) continue;
-    display.push_back(i);
-    if (is_3d_controller(devices[i].class_code)) any_3d = true;
-    if (is_vga_controller(devices[i].class_code)) any_vga = true;
-  }
-  if (display.empty()) return {};
-
-  std::vector<size_t> chosen;
-  if (any_3d && any_vga) {
-    for (size_t i : display) {
-      if (is_3d_controller(devices[i].class_code)) chosen.push_back(i);
+    const std::string key = pci_card_key(devices[i].slot);
+    GpuCard* card = nullptr;
+    for (GpuCard& existing : cards) {
+      if (existing.key == key) {
+        card = &existing;
+        break;
+      }
     }
-  } else {
-    chosen = display;
+    if (!card) {
+      cards.push_back(GpuCard{});
+      card = &cards.back();
+      card->key = key;
+      card->slot = devices[i].slot;
+    } else if (devices[i].slot < card->slot) {
+      card->slot = devices[i].slot;
+    }
+    if (is_vga_controller(devices[i].class_code)) {
+      card->have_vga = true;
+      card->vga = i;
+    } else if (is_3d_controller(devices[i].class_code)) {
+      card->have_3d = true;
+      card->three_d = i;
+    } else {
+      card->have_other = true;
+      card->other = i;
+    }
   }
+  if (cards.empty()) return {};
+
+  std::sort(cards.begin(), cards.end(), [](const GpuCard& a, const GpuCard& b) {
+    const int ra = gpu_card_rank(a);
+    const int rb = gpu_card_rank(b);
+    if (ra != rb) return ra < rb;
+    return a.slot < b.slot;
+  });
 
   std::string out;
-  for (size_t i : chosen) {
-    const GpuDevice& dev = devices[i];
-    std::string piece;
-    const auto vendor = db.vendors.find(dev.vendor);
-    std::string device_name;
-    const auto devs = db.devices.find(dev.vendor);
-    if (devs != db.devices.end()) {
-      const auto found = devs->second.find(dev.device);
-      if (found != devs->second.end()) device_name = found->second;
+  for (const GpuCard& card : cards) {
+    size_t idx = card.other;
+    if (card.have_vga && card.have_3d) {
+      // One card, two functions: a single name. Prefer the 3D function when
+      // pci.ids names it; otherwise keep the display controller's name.
+      const std::string named_3d = gpu_device_piece(devices[card.three_d], db);
+      const std::string named_vga = gpu_device_piece(devices[card.vga], db);
+      idx = piece_is_named(named_3d) || !piece_is_named(named_vga) ? card.three_d : card.vga;
+    } else if (card.have_vga) {
+      idx = card.vga;
+    } else if (card.have_3d) {
+      idx = card.three_d;
+    } else if (!card.have_other) {
+      continue;
     }
-    if (vendor != db.vendors.end() && !device_name.empty()) {
-      piece = vendor->second + " " + device_name;
-    } else {
-      char buf[80];
-      std::snprintf(buf, sizeof(buf), "PCI 0x%04x:0x%04x", dev.vendor, dev.device);
-      piece = buf;
-      if (!dev.driver.empty()) piece += " (" + dev.driver + ")";
-    }
+    const std::string piece = gpu_device_piece(devices[idx], db);
+    if (piece.empty()) continue;
     if (!out.empty()) out += "; ";
     out += piece;
   }

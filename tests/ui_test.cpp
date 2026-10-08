@@ -14,6 +14,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <gdk/gdk.h>
 
 namespace {
 
@@ -411,6 +412,140 @@ void test_distinguish_column() {
   drain();
 }
 
+struct FocusSample {
+  int focus = 0;
+  int white = 0;
+  int dark = 0;
+  int total = 0;
+  int r = -1;
+  int g = -1;
+  int b = -1;
+  bool ok = false;
+};
+
+FocusSample sample_row_background(Gtk::Widget& widget) {
+  FocusSample out;
+  auto window = widget.get_window();
+  if (!window) return out;
+  const int width = widget.get_allocated_width();
+  const int height = widget.get_allocated_height();
+  if (width < 16 || height < 8) return out;
+  Glib::RefPtr<Gdk::Pixbuf> pix;
+  try {
+    pix = Gdk::Pixbuf::create(window, 0, 0, width, height);
+  } catch (const Glib::Error&) {
+    return out;
+  }
+  if (!pix || pix->get_n_channels() < 3) return out;
+  const int n = pix->get_n_channels();
+  const int stride = pix->get_rowstride();
+  const guint8* pixels = pix->get_pixels();
+  for (int y = 0; y < pix->get_height(); ++y) {
+    for (int x = 0; x < pix->get_width(); ++x) {
+      const guint8* p = pixels + y * stride + x * n;
+      if (p[0] < 80 && p[1] < 80 && p[2] < 80) ++out.dark;
+    }
+  }
+  // Middle of the row, clear of the short name on the left and the RAM
+  // caption on the right.
+  const int x0 = width / 2 - 4;
+  const int x1 = width / 2 + 4;
+  for (int y = 0; y < pix->get_height(); ++y) {
+    for (int x = x0; x < x1 && x < pix->get_width(); ++x) {
+      if (x < 0) continue;
+      const guint8* p = pixels + y * stride + x * n;
+      ++out.total;
+      if (out.r < 0) {
+        out.r = p[0];
+        out.g = p[1];
+        out.b = p[2];
+      }
+      const int dr = static_cast<int>(p[0]) - 0xE4;
+      const int dg = static_cast<int>(p[1]) - 0xEA;
+      const int db = static_cast<int>(p[2]) - 0xF6;
+      if (dr >= -4 && dr <= 4 && dg >= -4 && dg <= 4 && db >= -4 && db <= 4) ++out.focus;
+      if (p[0] >= 250 && p[1] >= 250 && p[2] >= 250) ++out.white;
+    }
+  }
+  out.ok = out.total > 0;
+  return out;
+}
+
+void settle_draw(Gtk::Widget& widget) {
+  widget.queue_draw();
+  drain();
+  if (auto window = widget.get_window()) {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    gdk_window_process_updates(window->gobj(), TRUE);
+#pragma GCC diagnostic pop
+  }
+  if (GdkDisplay* display = gdk_display_get_default()) gdk_display_flush(display);
+  drain();
+}
+
+void test_row_focus_visible() {
+  lundukeabout::AppEntry first = closable_entry("Keeper", 43);
+  lundukeabout::AppEntry second = closable_entry("GhostWin", 44);
+  Gtk::Window window;
+  window.set_default_size(520, 160);
+  Gtk::Box box(Gtk::ORIENTATION_VERTICAL, 0);
+  box.set_hexpand(true);
+  auto* row_a = Gtk::manage(new lundukeabout::AppRow(first));
+  auto* row_b = Gtk::manage(new lundukeabout::AppRow(second));
+  row_a->set_hexpand(true);
+  row_b->set_hexpand(true);
+  row_a->set_size_request(480, 36);
+  row_b->set_size_request(480, 36);
+  box.pack_start(*row_a, Gtk::PACK_SHRINK);
+  box.pack_start(*row_b, Gtk::PACK_SHRINK);
+  window.add(box);
+  window.show_all();
+  drain();
+
+  row_a->grab_focus();
+  settle_draw(*row_a);
+  settle_draw(*row_b);
+  CHECK(row_a->is_focus());
+  CHECK(!row_b->is_focus());
+  const FocusSample focused = sample_row_background(*row_a);
+  const FocusSample idle = sample_row_background(*row_b);
+  if (!focused.ok || focused.focus * 2 < focused.total) {
+    std::cerr << "focused row pixels r=" << focused.r << " g=" << focused.g
+              << " b=" << focused.b << " focus=" << focused.focus
+              << " white=" << focused.white << " total=" << focused.total << "\n";
+  }
+  CHECK(focused.ok);
+  CHECK(focused.total > 0);
+  CHECK(focused.focus * 2 >= focused.total);
+  CHECK(focused.dark > 0);
+  CHECK(idle.ok);
+  CHECK(idle.white * 2 >= idle.total);
+  CHECK(idle.focus * 4 < idle.total + 4);
+
+  g_signal_emit_by_name(window.gobj(), "move-focus", GTK_DIR_TAB_FORWARD);
+  drain();
+  CHECK(row_b->is_focus());
+  CHECK(!row_a->is_focus());
+  settle_draw(*row_a);
+  settle_draw(*row_b);
+  const FocusSample now_b = sample_row_background(*row_b);
+  const FocusSample now_a = sample_row_background(*row_a);
+  if (!now_b.ok || now_b.focus * 2 < now_b.total) {
+    std::cerr << "tabbed row pixels r=" << now_b.r << " g=" << now_b.g << " b=" << now_b.b
+              << " focus=" << now_b.focus << " white=" << now_b.white
+              << " total=" << now_b.total << "\n";
+  }
+  CHECK(now_b.ok);
+  CHECK(now_b.focus * 2 >= now_b.total);
+  CHECK(now_a.ok);
+  CHECK(now_a.white * 2 >= now_a.total);
+  CHECK(now_a.focus * 4 < now_a.total + 4);
+
+  window.hide();
+  drain();
+}
+
 void test_window_layout() {
   lundukeabout::MainWindow window;
   drain();
@@ -500,6 +635,7 @@ int main(int argc, char** argv) {
   test_click_and_keys_agree();
   test_unclosable_tooltip();
   test_distinguish_column();
+  test_row_focus_visible();
   test_window_layout();
   if (g_failures != 0) {
     std::cerr << g_failures << " failure(s)\n";

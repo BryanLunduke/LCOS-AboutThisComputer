@@ -61,10 +61,9 @@ Needs an X11 display (GDK_BACKEND=x11 is set automatically if unset):
 ./build/lunduke-about
 ```
 
-Data files (`supporters.txt`, logo pixmaps) are resolved from:
-
-1. Install prefix `share/lunduke-about/`
-2. Source-tree `data/` (so running from the builddir works without install)
+Data files (`supporters.txt`, logo pixmaps) are loaded from the installed
+`share/lunduke-about/` directory. A missing logo or system icon keeps the
+generic computer icon. Missing supporter names keep the built-in list.
 
 ### Supporters of LCOS
 

@@ -41,7 +41,9 @@ Glib::ustring AppRow::utf8_text(const std::string& text) {
 }
 
 AppRow::AppRow(const AppEntry& entry) : entry_(entry) {
-  set_visible_window(false);
+  // A windowless event box never paints its background, so the focus fill
+  // would stay invisible. The row draws that fill itself from is_focus().
+  set_visible_window(true);
   add(box_);
   box_.set_margin_start(6);
   box_.set_margin_end(6);
@@ -187,6 +189,37 @@ void AppRow::popup_force_close_menu(const GdkEvent* event) {
   } else {
     menu_.popup_at_widget(this, Gdk::GRAVITY_SOUTH_WEST, Gdk::GRAVITY_NORTH_WEST, event);
   }
+}
+
+bool AppRow::on_draw(const Cairo::RefPtr<Cairo::Context>& cr) {
+  const int w = get_allocated_width();
+  const int h = get_allocated_height();
+  if (w > 0 && h > 0 && cr) {
+    // #e4eaf6. Painted from is_focus(), which does not require the toplevel
+    // to be the active window (a display with no window manager never is).
+    if (is_focus()) cr->set_source_rgb(0xE4 / 255.0, 0xEA / 255.0, 0xF6 / 255.0);
+    else cr->set_source_rgb(1.0, 1.0, 1.0);
+    cr->rectangle(0, 0, w, h);
+    cr->fill();
+  }
+  for (Gtk::Widget* child : get_children()) {
+    if (child) propagate_draw(*child, cr);
+  }
+  return true;
+}
+
+void AppRow::redraw_focus_row() {
+  queue_draw();
+  if (auto* parent = dynamic_cast<Gtk::Container*>(get_parent())) {
+    for (Gtk::Widget* child : parent->get_children()) {
+      if (child && child != this) child->queue_draw();
+    }
+  }
+}
+
+void AppRow::on_grab_focus() {
+  Gtk::EventBox::on_grab_focus();
+  redraw_focus_row();
 }
 
 bool AppRow::on_focus(Gtk::DirectionType /*direction*/) {

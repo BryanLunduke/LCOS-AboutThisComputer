@@ -1,10 +1,10 @@
 #!/bin/sh
-# Build lunduke-about_0.9-5_amd64.deb into packaging/debs/ (repo-local).
+# Build lunduke-about_0.9-6_amd64.deb into packaging/debs/ (repo-local).
 # Does NOT seed lcos-live-07 (Phil seeds by hand into packages.chroot).
 set -eu
 
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
-VERSION="0.9-5"
+VERSION="0.9-6"
 PKGNAME="lunduke-about_${VERSION}_amd64"
 BUILD="$ROOT/build-deb"
 DEST="$ROOT/packaging/src/lunduke-about"
@@ -87,5 +87,8 @@ rm -rf "$DEST/debian"
 
 mkdir -p "$DEB_DIR"
 fakeroot dpkg-deb --root-owner-group --build "$DEST" "$DEB_DIR/${PKGNAME}.deb"
+
+# The packaged binary must not embed a developer workspace path.
+sh "$ROOT/packaging/check-no-workspace.sh" "$DEB_DIR/${PKGNAME}.deb"
 
 echo "built $DEB_DIR/${PKGNAME}.deb"
