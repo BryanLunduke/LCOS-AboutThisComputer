@@ -756,9 +756,11 @@ Glib::RefPtr<Gdk::Pixbuf> MainWindow::load_lcos_system_icon() const {
 }
 
 void MainWindow::update_supporters_cap() {
-  // Names may use the header row beside the logo, under the fixed title
-  // and the blank line. They must not make that row taller than the logo.
-  // load_logo() scales the mark to 120px; use that until the image is allocated.
+  // Names sit under the fixed title and the blank line. They may use the
+  // row beside the logo, and at least the room the 120px mark leaves, so a
+  // short generic icon does not clip the list. A longer list still crawls
+  // instead of growing past that mark. Until the image is allocated, the
+  // 120px fallback is that same mark.
   const int logo_px = positive_height(logo_, 120);
   const int logo_span = logo_px + logo_.get_margin_top() + logo_.get_margin_bottom();
   const int title_h = positive_height(supporters_title_, 16);
@@ -769,6 +771,10 @@ void MainWindow::update_supporters_cap() {
   // A cap shorter than one line clips the names. Grow the header instead.
   if (line > 1 && max_names < line) max_names = line;
   if (max_names < 1) max_names = 1;
+  const int installed_span = 120 + logo_.get_margin_top() + logo_.get_margin_bottom();
+  int installed_names = installed_span - title_h - blank_h;
+  if (line > 1 && installed_names < line) installed_names = line;
+  if (installed_names > max_names) max_names = installed_names;
   supporters_names_view_.set_max_height(max_names);
 }
 

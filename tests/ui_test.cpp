@@ -680,6 +680,8 @@ void test_window_layout() {
     }
     CHECK(view_w >= 40);
     CHECK(content_h > 1);
+    // The wrapped names stay inside the view. A 1px slack matches the
+    // crawl threshold, so this is fully visible and not scrolling.
     CHECK(content_h <= view_h + 1);
     int names_x = 0;
     int names_y = 0;
