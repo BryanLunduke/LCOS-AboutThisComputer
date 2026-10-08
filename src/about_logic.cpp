@@ -392,19 +392,29 @@ void disambiguate_row_names(std::vector<GroupedApp>& rows) {
     if (name_count[row.name] < 2) continue;
     const std::string title = distinct_title(row);
     const bool title_unique = !title.empty() && title_count[row.name + "\n" + title] == 1;
+    if (row.has_pid && row.pid > 1) row.distinguish = "pid " + std::to_string(row.pid);
+    else row.distinguish = "window " + std::to_string(row.xid);
+    // The menu and the confirm dialog use `name`. The row paints `distinguish`
+    // in a separate column because an end ellipsis would hide a suffix.
     if (title_unique) {
       row.name += " \u2014 " + title;
       continue;
     }
-    if (row.has_pid && row.pid > 1) {
-      row.name += " (pid " + std::to_string(row.pid) + ")";
-    } else {
-      row.name += " (window " + std::to_string(row.xid) + ")";
-    }
+    row.name += " (" + row.distinguish + ")";
   }
 }
 
 }  // namespace
+
+std::string painted_row_name(const std::string& name, const std::string& distinguish) {
+  if (distinguish.empty()) return name;
+  const std::string suffix = " (" + distinguish + ")";
+  if (name.size() >= suffix.size() &&
+      name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0) {
+    return name.substr(0, name.size() - suffix.size());
+  }
+  return name;
+}
 
 std::vector<GroupedApp> group_windows(const std::vector<WindowFact>& windows) {
   struct Acc {
@@ -659,10 +669,23 @@ std::string force_close_menu_label(const std::string& row_name, bool can_close,
   return escape_mnemonic(reason);
 }
 
-std::string row_tooltip_text(const std::string& title_or_name) {
+std::string row_tooltip_text(const std::string& title_or_name, bool can_close,
+                             const std::string& protect_reason,
+                             const std::string& distinguish) {
+  if (!can_close) {
+    const std::string reason = protect_reason.empty() ? std::string("Protected") : protect_reason;
+    const auto nl = title_or_name.find('\n');
+    if (nl != std::string::npos) return reason + title_or_name.substr(nl);
+    return reason;
+  }
+  std::string body = title_or_name;
+  if (!distinguish.empty() && body.find(distinguish) == std::string::npos) {
+    if (!body.empty()) body += "\n";
+    body += distinguish;
+  }
   const char* hint = "Right-click or press the Menu key to Force Close";
-  if (title_or_name.empty()) return hint;
-  return title_or_name + "\n" + hint;
+  if (body.empty()) return hint;
+  return body + "\n" + hint;
 }
 
 bool is_force_close_popup_key(unsigned keyval, unsigned state) {

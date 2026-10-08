@@ -70,10 +70,39 @@ MemoryUsage memory_usage_from_meminfo(const MemInfoSnapshot& snap);
 // when the stream has none of those.
 std::string cpu_model_from_cpuinfo(std::istream& in);
 
-// No display PCI device and no DRM card. Xvfb keeps its own string. The
-// other named virtual servers are "Virtual display". Anything else, including
-// an empty comm list, stays "Unknown GPU".
-std::string virtual_display_label_from_comms(const std::vector<std::string>& comms);
+// Local display number from a DISPLAY spec (:1, :1.0, unix:1, localhost:1,
+// 127.0.0.1:1). nullopt when the spec is empty, not a display, or names
+// another machine. A background X server on this host is not a substitute.
+std::optional<int> local_x_display_number(const std::string& spec);
+
+// Listening entry from /proc/net/unix. Connected clients are omitted.
+struct XListenSocket {
+  unsigned long inode = 0;
+  std::string path;
+};
+
+// A process that holds a unix socket inode, with its /proc comm.
+struct ProcessSocket {
+  pid_t pid = 0;
+  unsigned long inode = 0;
+  std::string comm;
+};
+
+std::vector<XListenSocket> parse_proc_net_unix(std::istream& in);
+// Pathname or abstract socket for this display (/tmp/.X11-unix/XN).
+bool x_socket_path_matches_display(const std::string& path, int display);
+// comm of the listener for `display`. Sockets and processes for other
+// display numbers are ignored. Empty when nothing matches.
+std::string server_comm_for_display(int display, const std::vector<XListenSocket>& sockets,
+                                   const std::vector<ProcessSocket>& processes);
+// /proc comm of the server that owns this DISPLAY spec. Empty when the spec
+// is not local or the listener's comm cannot be read.
+std::string server_comm_owning_display(const std::string& display_spec);
+
+// Label for that one server. "Virtual framebuffer (Xvfb)" only when `comm`
+// is Xvfb. Xtigervnc, Xvnc, and Xephyr are "Virtual display". Any other
+// comm, including empty, is "Unknown GPU".
+std::string virtual_display_label_for_server(const std::string& comm);
 
 // Directory fd for /proc/<pid> (O_PATH when the kernel accepts it). -1 on failure.
 int open_proc_pid_dir(pid_t pid);

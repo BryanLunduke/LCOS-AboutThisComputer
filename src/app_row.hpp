@@ -24,11 +24,15 @@ public:
 protected:
   bool on_button_press_event(GdkEventButton* event) override;
   bool on_key_press_event(GdkEventKey* event) override;
+  bool on_focus(Gtk::DirectionType direction) override;
 
 private:
   void on_force_close();
   bool on_popup_menu();
   bool can_force_close() const;
+  bool keyboard_targets_this_row() const;
+  std::string blocked_reason() const;
+  void apply_entry_text();
   void rebuild_menu_item();
   void popup_force_close_menu(const GdkEvent* event);
   static bool same_pixbuf(const Glib::RefPtr<Gdk::Pixbuf>& a,
@@ -42,6 +46,7 @@ private:
   Gtk::Box box_{Gtk::ORIENTATION_HORIZONTAL, 8};
   Gtk::Image icon_;
   Gtk::Label name_;
+  Gtk::Label detail_;
   Gtk::Label mem_label_;
   Gtk::Menu menu_;
   Gtk::MenuItem item_;

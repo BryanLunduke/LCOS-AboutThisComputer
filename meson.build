@@ -65,7 +65,7 @@ xvfb_run = find_program('xvfb-run', required: true)
 test(
   'about-ui',
   xvfb_run,
-  args: ['-a', '-s', '-screen 0 1280x800x24', about_ui_test],
+  args: ['-a', about_ui_test],
   timeout: 120,
 )
 

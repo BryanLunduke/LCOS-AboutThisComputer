@@ -5,9 +5,15 @@
 #include <algorithm>
 #include <cerrno>
 #include <climits>
+#include <csignal>
+#include <cstdlib>
+#include <fcntl.h>
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <sys/select.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 namespace {
 
@@ -792,9 +798,22 @@ int main() {
     CHECK(is_force_close_popup_key(0xffc7u, 1u));
     CHECK(is_force_close_popup_key(0xffc7u, 0) == false);
     CHECK(is_force_close_popup_key(0xff0du, 0) == false);
-    const std::string tip = row_tooltip_text("Document");
+    const std::string tip = row_tooltip_text("Document", true, "", "");
     CHECK(tip.find("Document") != std::string::npos);
     CHECK(tip.find("Right-click or press the Menu key to Force Close") != std::string::npos);
+    const std::string shared = row_tooltip_text("Document", true, "", "pid 32");
+    CHECK(shared.find("pid 32") != std::string::npos);
+    CHECK(shared.find("Right-click or press the Menu key to Force Close") != std::string::npos);
+    const std::string blocked = row_tooltip_text("GhostWin", false, "No process ID", "pid 9");
+    CHECK(blocked == "No process ID");
+    CHECK(blocked.find("Force Close") == std::string::npos);
+    const std::string panel = row_tooltip_text("xfce4-panel", false, "Desktop panel", "");
+    CHECK(panel == "Desktop panel");
+    const std::string system =
+        row_tooltip_text("LCOS System\nUnclamped remainder: -5 kB", false, "LCOS System", "");
+    CHECK(system == "LCOS System\nUnclamped remainder: -5 kB");
+    CHECK(system.find("Force Close") == std::string::npos);
+    CHECK(row_tooltip_text("LCOS System", false, "", "") == "Protected");
   }
 
   // Finding 12: shared names gain a title, or a pid when the title matches too.
@@ -814,6 +833,11 @@ int main() {
       CHECK(distinct[1].name.find("pid") == std::string::npos);
       CHECK(distinct[0].class_name == "My_App");
       CHECK(distinct[0].name != distinct[1].name);
+      // Titles differ, but a long title is still ellipsized away. The pid
+      // stays in a column that does not ellipsize.
+      CHECK(distinct[0].distinguish == "pid 30");
+      CHECK(distinct[1].distinguish == "pid 31");
+      CHECK(painted_row_name(distinct[0].name, distinct[0].distinguish) == distinct[0].name);
     }
     WindowFact same_a = fact(3, 32, true, WindowKind::Normal);
     same_a.res_class = "My_App";
@@ -827,13 +851,54 @@ int main() {
       CHECK(same[0].name.find("pid 32") != std::string::npos);
       CHECK(same[1].name.find("pid 33") != std::string::npos);
       CHECK(same[0].name != same[1].name);
+      CHECK(same[0].distinguish == "pid 32");
+      CHECK(same[1].distinguish == "pid 33");
+      const std::string painted0 = painted_row_name(same[0].name, same[0].distinguish);
+      const std::string painted1 = painted_row_name(same[1].name, same[1].distinguish);
+      CHECK(painted0 == painted1);
+      CHECK(painted0.find("pid") == std::string::npos);
+      CHECK(painted0.find("My_App") != std::string::npos);
     }
     WindowFact only = fact(5, 34, true, WindowKind::Normal);
     only.res_class = "Only";
     only.title = "Doc";
     const auto single = group_windows({only});
     CHECK(!single.empty());
-    if (!single.empty()) CHECK(single[0].name == "Only");
+    if (!single.empty()) {
+      CHECK(single[0].name == "Only");
+      CHECK(single[0].distinguish.empty());
+    }
+    const std::string long_class(80, 'A');
+    WindowFact long_a = fact(11, 40, true, WindowKind::Normal);
+    long_a.res_class = long_class;
+    long_a.title = std::string(40, 'T') + "ONE";
+    WindowFact long_b = fact(12, 41, true, WindowKind::Normal);
+    long_b.res_class = long_class;
+    long_b.title = std::string(40, 'T') + "TWO";
+    const auto longs = group_windows({long_a, long_b});
+    CHECK(longs.size() == 2);
+    if (longs.size() == 2) {
+      CHECK(longs[0].distinguish == "pid 40");
+      CHECK(longs[1].distinguish == "pid 41");
+      CHECK(longs[0].distinguish != longs[1].distinguish);
+      CHECK(longs[0].name.find("ONE") != std::string::npos);
+      CHECK(longs[1].name.find("TWO") != std::string::npos);
+    }
+    WindowFact ghost_a = fact(21, 0, false, WindowKind::Normal);
+    ghost_a.res_class = "Ghost";
+    ghost_a.title = "Same";
+    WindowFact ghost_b = fact(22, 0, false, WindowKind::Normal);
+    ghost_b.res_class = "Ghost";
+    ghost_b.title = "Same";
+    const auto ghosts = group_windows({ghost_a, ghost_b});
+    CHECK(ghosts.size() == 2);
+    if (ghosts.size() == 2) {
+      CHECK(ghosts[0].distinguish == "window 21");
+      CHECK(ghosts[1].distinguish == "window 22");
+      CHECK(painted_row_name(ghosts[0].name, ghosts[0].distinguish).find("window") ==
+            std::string::npos);
+      CHECK(ghosts[0].protect_reason == "No process ID");
+    }
   }
 
   // Finding 13: the question uses the row name. The body is plain language.
@@ -855,16 +920,160 @@ int main() {
     CHECK(matched.primary.find("Firefox") != std::string::npos);
   }
 
-  // Finding 14: a virtual server that is not Xvfb is "Virtual display".
+  // The GPU fallback names the server that owns DISPLAY, not every Xvfb.
   {
-    CHECK(virtual_display_label_from_comms({"Xtigervnc"}) == "Virtual display");
-    CHECK(virtual_display_label_from_comms({"Xvnc"}) == "Virtual display");
-    CHECK(virtual_display_label_from_comms({"Xephyr"}) == "Virtual display");
-    CHECK(virtual_display_label_from_comms({"Xvfb"}) == "Virtual framebuffer (Xvfb)");
-    CHECK(virtual_display_label_from_comms({"Xtigervnc", "Xvfb"}) == "Virtual framebuffer (Xvfb)");
-    CHECK(virtual_display_label_from_comms({"Xorg"}) == "Unknown GPU");
-    CHECK(virtual_display_label_from_comms({}) == "Unknown GPU");
-    CHECK(virtual_display_label_from_comms({"notXvfb"}) == "Unknown GPU");
+    CHECK(!local_x_display_number(""));
+    CHECK(!local_x_display_number("1"));
+    CHECK(!local_x_display_number(":abc"));
+    CHECK(!local_x_display_number("otherhost:1"));
+    const auto d0 = local_x_display_number(":0");
+    const auto d1 = local_x_display_number(":1.0");
+    const auto d22 = local_x_display_number("unix:22");
+    const auto d_local = local_x_display_number("localhost:1.0");
+    const auto d_loop = local_x_display_number("127.0.0.1:0");
+    CHECK(d0 && *d0 == 0);
+    CHECK(d1 && *d1 == 1);
+    CHECK(d22 && *d22 == 22);
+    CHECK(d_local && *d_local == 1);
+    CHECK(d_loop && *d_loop == 0);
+
+    std::istringstream table(
+        "Num       RefCount Protocol Flags    Type St Inode Path\n"
+        "0000000083a54465: 00000002 00000000 00010000 0001 01  5528 /tmp/.X11-unix/X1\n"
+        "00000000f707763a: 00000002 00000000 00010000 0001 01  5527 @/tmp/.X11-unix/X1\n"
+        "000000004ffd1ddf: 00000003 00000000 00000000 0001 03  4451 @/tmp/.X11-unix/X1\n"
+        "0000000000000001: 00000002 00000000 00010000 0001 01  9999 /tmp/.X11-unix/X22\n"
+        "0000000000000002: 00000002 00000000 00010000 0001 01  10001 /tmp/.X11-unix/X10\n");
+    const auto sockets = parse_proc_net_unix(table);
+    CHECK(sockets.size() == 4);
+    bool saw_client = false;
+    for (const auto& sock : sockets) {
+      if (sock.inode == 4451) saw_client = true;
+    }
+    CHECK(!saw_client);
+    CHECK(x_socket_path_matches_display("/tmp/.X11-unix/X1", 1));
+    CHECK(x_socket_path_matches_display("@/tmp/.X11-unix/X1", 1));
+    CHECK(!x_socket_path_matches_display("/tmp/.X11-unix/X10", 1));
+    CHECK(!x_socket_path_matches_display("/tmp/.X11-unix/X1", 10));
+
+    const std::vector<ProcessSocket> procs = {
+        {1600, 5528, "Xtigervnc"},
+        {1600, 5527, "Xtigervnc"},
+        {50, 4451, "some-client"},
+        {6606, 9999, "Xvfb"},
+        {70, 10001, "Xvfb"},
+    };
+    CHECK(server_comm_for_display(1, sockets, procs) == "Xtigervnc");
+    CHECK(server_comm_for_display(22, sockets, procs) == "Xvfb");
+    CHECK(server_comm_for_display(10, sockets, procs) == "Xvfb");
+    CHECK(server_comm_for_display(3, sockets, procs).empty());
+    CHECK(virtual_display_label_for_server(server_comm_for_display(1, sockets, procs)) ==
+          "Virtual display");
+    CHECK(virtual_display_label_for_server("Xvfb") == "Virtual framebuffer (Xvfb)");
+    CHECK(virtual_display_label_for_server("Xvnc") == "Virtual display");
+    CHECK(virtual_display_label_for_server("Xephyr") == "Virtual display");
+    CHECK(virtual_display_label_for_server("Xorg") == "Unknown GPU");
+    CHECK(virtual_display_label_for_server("") == "Unknown GPU");
+    CHECK(virtual_display_label_for_server("notXvfb") == "Unknown GPU");
+    // Display 1 stays "Virtual display" while an Xvfb listens on :22 and :10.
+    CHECK(virtual_display_label_for_server(server_comm_for_display(1, sockets, procs))
+              .find("Xvfb") == std::string::npos);
+  }
+
+  // A real Xvfb on some other display must not become the server for DISPLAY.
+  {
+    int pipefd[2] = {-1, -1};
+    bool started = false;
+    pid_t child = -1;
+    int xvfb_display = -1;
+    if (pipe(pipefd) == 0) {
+      child = fork();
+      if (child == 0) {
+        close(pipefd[0]);
+        if (dup2(pipefd[1], 3) < 0) _exit(127);
+        if (pipefd[1] != 3) close(pipefd[1]);
+        const int devnull = open("/dev/null", O_RDWR);
+        if (devnull >= 0) {
+          dup2(devnull, STDOUT_FILENO);
+          dup2(devnull, STDERR_FILENO);
+          if (devnull > 2 && devnull != 3) close(devnull);
+        }
+        execlp("Xvfb", "Xvfb", "-displayfd", "3", "-nolisten", "tcp", "-screen", "0",
+               "640x480x8", static_cast<char*>(nullptr));
+        _exit(127);
+      }
+      close(pipefd[1]);
+      pipefd[1] = -1;
+      if (child > 0) {
+        std::string acc;
+        const auto deadline = []() {
+          timeval tv;
+          tv.tv_sec = 3;
+          tv.tv_usec = 0;
+          return tv;
+        };
+        while (acc.find('\n') == std::string::npos) {
+          fd_set rfds;
+          FD_ZERO(&rfds);
+          FD_SET(pipefd[0], &rfds);
+          timeval tv = deadline();
+          const int sel = select(pipefd[0] + 1, &rfds, nullptr, nullptr, &tv);
+          if (sel <= 0) break;
+          char buf[64];
+          const ssize_t n = read(pipefd[0], buf, sizeof(buf));
+          if (n <= 0) break;
+          acc.append(buf, buf + n);
+        }
+        if (!acc.empty()) {
+          try {
+            xvfb_display = std::stoi(acc);
+            started = xvfb_display >= 0;
+          } catch (...) {
+            started = false;
+          }
+        }
+      }
+    }
+    if (pipefd[0] >= 0) close(pipefd[0]);
+    if (!started) {
+      if (child > 0) {
+        kill(child, SIGTERM);
+        waitpid(child, nullptr, 0);
+      }
+      std::cout << "SKIP live display server (Xvfb did not start)\n";
+    } else {
+      std::string comm;
+      const std::string spec = ":" + std::to_string(xvfb_display);
+      for (int i = 0; i < 20 && comm != "Xvfb"; ++i) {
+        comm = server_comm_owning_display(spec);
+        if (comm == "Xvfb") break;
+        usleep(50000);
+      }
+      CHECK(comm == "Xvfb");
+      CHECK(virtual_display_label_for_server(comm) == "Virtual framebuffer (Xvfb)");
+      bool saw_other = false;
+      for (int extra = xvfb_display + 1; extra < xvfb_display + 30; ++extra) {
+        if (server_comm_owning_display(":" + std::to_string(extra)).empty()) {
+          saw_other = true;
+          break;
+        }
+      }
+      CHECK(saw_other);
+      if (const char* cur = std::getenv("DISPLAY")) {
+        const auto cur_n = local_x_display_number(cur);
+        if (cur_n && *cur_n != xvfb_display) {
+          const std::string mine = server_comm_owning_display(cur);
+          // The session server may itself be Xvfb (xvfb-run). A different
+          // server must not be labeled as the background Xvfb.
+          if (!mine.empty() && mine != "Xvfb") {
+            CHECK(virtual_display_label_for_server(mine) != "Virtual framebuffer (Xvfb)");
+          }
+        }
+      }
+      kill(child, SIGTERM);
+      waitpid(child, nullptr, 0);
+      child = -1;
+    }
   }
 
   if (g_failures != 0) {

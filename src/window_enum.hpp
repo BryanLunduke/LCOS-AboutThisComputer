@@ -28,6 +28,9 @@ struct AppEntry {
   bool identity_ok = false;
   // Raw UTF-8 WM_CLASS class, before a disambiguating title or pid suffix.
   std::string class_name;
+  // "pid N" or "window N" when the visible name is shared. Empty otherwise.
+  // Shown beside the name so ellipsis cannot hide it.
+  std::string distinguish;
   // Root and descendants whose anonymous charge is included in rss_kb.
   std::vector<ProcPin> kill_pins;
 };

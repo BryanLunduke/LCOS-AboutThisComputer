@@ -791,6 +791,7 @@ void AppListRefresh::Impl::assemble() {
     entry.protect_reason = g.protect_reason;
     entry.comm = g.comm;
     entry.class_name = g.class_name;
+    entry.distinguish = g.distinguish;
     entry.start_ticks = g.start_ticks;
     entry.identity_ok = g.identity_ok;
     if (g.has_pid && g.identity_ok) {
