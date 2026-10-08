@@ -225,8 +225,9 @@ struct PciDb {
 
 bool is_display_class(unsigned class_code);
 PciDb parse_pci_ids(std::istream& in);
-// Every display-class device. When a VGA controller and a 3D controller are
-// both present, only the 3D controllers are named.
+// One name per PCI card. A card that exposes both a VGA function and a 3D
+// function is named once. Distinct cards are all named, display controller
+// first, then 3D controllers, joined with "; ".
 std::string gpu_label_from_devices(const std::vector<GpuDevice>& devices,
                                    const PciDb& db);
 

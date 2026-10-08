@@ -19,6 +19,8 @@
 #include <cstring>
 #include <fcntl.h>
 #include <sys/syscall.h>
+#include <gdk/gdkx.h>
+#include <X11/Xlib.h>
 
 namespace lundukeabout {
 namespace {
@@ -429,7 +431,17 @@ MainWindow::MainWindow() {
 
   apply_platinum_css();
 
-  info_ = gather_system_info();
+  int x_fd = -1;
+  std::string x_name;
+  if (GdkDisplay* display = gdk_display_get_default()) {
+    if (GDK_IS_X11_DISPLAY(display)) {
+      if (Display* dpy = gdk_x11_display_get_xdisplay(display)) {
+        x_fd = XConnectionNumber(dpy);
+      }
+      if (const char* name = gdk_display_get_name(display)) x_name = name;
+    }
+  }
+  info_ = gather_system_info(x_fd, x_name);
 
   add(root_);
   root_.get_style_context()->add_class("about-panel");
@@ -586,15 +598,15 @@ void MainWindow::apply_platinum_css() {
 }
 
 std::string MainWindow::find_data_file(const std::string& relative) const {
-  // Prefer installed DATADIR, then SOURCE_DATADIR (build/run from tree),
-  // then relative to cwd.
-  const char* candidates[] = {DATADIR, SOURCE_DATADIR, "data", nullptr};
-  for (int i = 0; candidates[i]; ++i) {
-    std::string path = std::string(candidates[i]) + "/" + relative;
-    std::ifstream test(path);
-    if (test.good()) return path;
+  // Installed data only. A missing file is an empty path so callers keep
+  // the generic icon or the built-in supporter list.
+  if (relative.empty() || relative.front() == '/' || relative.find("..") != std::string::npos) {
+    return {};
   }
-  return relative;
+  const std::string path = std::string(DATADIR) + "/" + relative;
+  std::ifstream test(path);
+  if (test.good()) return path;
+  return {};
 }
 
 void MainWindow::load_logo() {
@@ -609,25 +621,18 @@ void MainWindow::load_logo() {
 
   Glib::RefPtr<Gdk::Pixbuf> pb;
   for (const char* rel : paths) {
-    std::string path = find_data_file(rel);
+    if (std::string(rel).size() >= 4 &&
+        std::string(rel).substr(std::string(rel).size() - 4) == ".svg") {
+      continue;
+    }
+    const std::string path = find_data_file(rel);
+    if (path.empty()) continue;
     try {
-      if (std::string(rel).size() >= 4 &&
-          std::string(rel).substr(std::string(rel).size() - 4) == ".svg") {
-        continue;
-      }
       // Slightly larger than v0.1 so rings/arcs stay readable
       pb = Gdk::Pixbuf::create_from_file(path, 120, 120, true);
       if (pb) break;
     } catch (...) {
       // try next
-    }
-  }
-
-  if (!pb) {
-    try {
-      pb = Gdk::Pixbuf::create_from_file(
-          "/workspace/artifacts/lcos-logo-black-preview.png", 120, 120, true);
-    } catch (...) {
     }
   }
 
@@ -645,17 +650,17 @@ Glib::RefPtr<Gdk::Pixbuf> MainWindow::load_lcos_system_icon() const {
       "pixmaps/lcos-outline-256.png",
   };
   for (const char* rel : paths) {
-    std::string path = find_data_file(rel);
+    const std::string path = find_data_file(rel);
+    if (path.empty()) continue;
     try {
       auto pb = Gdk::Pixbuf::create_from_file(path, 32, 32, true);
       if (pb) return pb;
     } catch (...) {
     }
   }
-  // Live recipe / system pixmaps fallback
+  // Installed system pixmaps. A missing file leaves the generic icon.
   const char* sys_paths[] = {
       "/usr/share/pixmaps/lcos32.png",
-      "/workspace/lcos-live-07/config/includes.chroot/usr/share/pixmaps/lcos32.png",
       "/usr/share/pixmaps/lcos-logo.png",
   };
   for (const char* path : sys_paths) {

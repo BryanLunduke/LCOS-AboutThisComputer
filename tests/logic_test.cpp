@@ -2,16 +2,22 @@
 #include "about_logic.hpp"
 #include "system_info.hpp"
 
+#include <X11/Xlib.h>
+
 #include <algorithm>
 #include <cerrno>
 #include <climits>
 #include <csignal>
 #include <cstdlib>
+#include <cstring>
 #include <fcntl.h>
+#include <fstream>
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <dirent.h>
 #include <sys/select.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -378,8 +384,10 @@ int main() {
     };
     const std::string preferred = gpu_label_from_devices(both, db);
     CHECK(preferred.find("Ellesmere") != std::string::npos);
-    CHECK(preferred.find("Iris") == std::string::npos);
+    CHECK(preferred.find("Iris") != std::string::npos);
+    CHECK(preferred.find("Iris") < preferred.find("Ellesmere"));
     CHECK(preferred.find("snd") == std::string::npos);
+    CHECK(preferred.find(';') != std::string::npos);
 
     const std::vector<GpuDevice> vga_only{
         GpuDevice{"0000:00:02.0", 0x030000, 0x8086, 0x9a49, "i915"},
@@ -750,7 +758,7 @@ int main() {
     std::istringstream arm("model name\t: \nProcessor\t: ARM926\n");
     CHECK(cpu_model_from_cpuinfo(arm) == "ARM926");
     std::istringstream normal("processor\t: 0\nmodel name\t: Real CPU\n");
-    CHECK(cpu_model_from_cpuinfo(normal) == "Real CPU");
+    CHECK(cpu_model_from_cpuinfo(normal) == "Real CPU (1 core, 1 thread)");
   }
 
   // Finding 7: missing MemTotal is unknown. MemTotal 0 with MemAvailable 0 is real.
@@ -998,7 +1006,7 @@ int main() {
           dup2(devnull, STDERR_FILENO);
           if (devnull > 2 && devnull != 3) close(devnull);
         }
-        execlp("Xvfb", "Xvfb", "-displayfd", "3", "-nolisten", "tcp", "-screen", "0",
+        execlp("Xvfb", "Xvfb", "-displayfd", "3", "-nolisten", "tcp", "-ac", "-screen", "0",
                "640x480x8", static_cast<char*>(nullptr));
         _exit(127);
       }
@@ -1051,6 +1059,47 @@ int main() {
       }
       CHECK(comm == "Xvfb");
       CHECK(virtual_display_label_for_server(comm) == "Virtual framebuffer (Xvfb)");
+      // unix/:N and unix/host:N name that same server.
+      const std::string unix_slash = "unix/:" + std::to_string(xvfb_display);
+      const std::string unix_host = "unix/localhost:" + std::to_string(xvfb_display);
+      CHECK(server_comm_owning_display(unix_slash) == "Xvfb");
+      CHECK(server_comm_owning_display(unix_host) == "Xvfb");
+      CHECK(server_comm_owning_display("unix/otherhost:" + std::to_string(xvfb_display)) == "Xvfb");
+      // Local TCP cannot use SO_PEERCRED. The proc walk is the fallback.
+      CHECK(server_comm_owning_display("tcp/127.0.0.1:" + std::to_string(xvfb_display)) == "Xvfb");
+      CHECK(server_comm_owning_display("tcp/[::1]:" + std::to_string(xvfb_display)) == "Xvfb");
+      // A remote spec with the same display number is not this server.
+      CHECK(server_comm_owning_display("tcp/example.invalid:" + std::to_string(xvfb_display)).empty());
+      CHECK(gpu_label_for_x_connection(-1, "tcp/example.invalid:" + std::to_string(xvfb_display)) ==
+            "Remote display");
+
+      const std::string colon_spec = ":" + std::to_string(xvfb_display);
+      Display* dpy = XOpenDisplay(colon_spec.c_str());
+      CHECK(dpy != nullptr);
+      if (dpy) {
+        const int fd = XConnectionNumber(dpy);
+        const XPeerCred peer = x_peer_cred_from_fd(fd);
+        CHECK(peer.supported);
+        CHECK(peer.have_pid);
+        CHECK(peer.pid == child);
+        CHECK(peer.uid == getuid());
+        CHECK(peer.comm == "Xvfb");
+        CHECK(comm_of_pid(peer.pid) == "Xvfb");
+        // The live connection wins even when the spec names another machine.
+        CHECK(gpu_label_for_x_connection(fd, "tcp/example.invalid:1") ==
+              "Virtual framebuffer (Xvfb)");
+        // A non-socket fd does not pretend to be that server.
+        int pipes[2] = {-1, -1};
+        CHECK(pipe(pipes) == 0);
+        if (pipes[0] >= 0) {
+          CHECK(gpu_label_for_x_connection(pipes[0], unix_slash) == "Virtual framebuffer (Xvfb)");
+          CHECK(gpu_label_for_x_connection(pipes[0], "otherhost:" + std::to_string(xvfb_display)) ==
+                "Remote display");
+          close(pipes[0]);
+          close(pipes[1]);
+        }
+        XCloseDisplay(dpy);
+      }
       bool saw_other = false;
       for (int extra = xvfb_display + 1; extra < xvfb_display + 30; ++extra) {
         if (server_comm_owning_display(":" + std::to_string(extra)).empty()) {
@@ -1074,6 +1123,320 @@ int main() {
       waitpid(child, nullptr, 0);
       child = -1;
     }
+  }
+
+  // DISPLAY parser: [protocol/]host:display[.screen], including IPv6.
+  {
+    struct Row {
+      const char* spec;
+      bool ok;
+      int display;
+      int screen;
+      bool has_screen;
+      XDisplayTransport transport;
+    };
+    const Row rows[] = {
+        {"", false, -1, 0, false, XDisplayTransport::Invalid},
+        {"1", false, -1, 0, false, XDisplayTransport::Invalid},
+        {":abc", false, -1, 0, false, XDisplayTransport::Invalid},
+        {":1.", false, -1, 0, false, XDisplayTransport::Invalid},
+        {":0", true, 0, 0, false, XDisplayTransport::LocalUnix},
+        {":1.0", true, 1, 0, true, XDisplayTransport::LocalUnix},
+        {":12.3", true, 12, 3, true, XDisplayTransport::LocalUnix},
+        {"unix:22", true, 22, 0, false, XDisplayTransport::LocalUnix},
+        {"unix:1.2", true, 1, 2, true, XDisplayTransport::LocalUnix},
+        {"unix/:1", true, 1, 0, false, XDisplayTransport::LocalUnix},
+        {"unix/:1.0", true, 1, 0, true, XDisplayTransport::LocalUnix},
+        {"unix/localhost:1", true, 1, 0, false, XDisplayTransport::LocalUnix},
+        {"unix/127.0.0.1:1", true, 1, 0, false, XDisplayTransport::LocalUnix},
+        {"unix/otherhost:2", true, 2, 0, false, XDisplayTransport::LocalUnix},
+        {"unix/[::1]:3", true, 3, 0, false, XDisplayTransport::LocalUnix},
+        {"localhost:1.0", true, 1, 0, true, XDisplayTransport::LocalUnix},
+        {"127.0.0.1:0", true, 0, 0, false, XDisplayTransport::LocalUnix},
+        {"127.1.2.3:4", true, 4, 0, false, XDisplayTransport::LocalUnix},
+        {"[::1]:0", true, 0, 0, false, XDisplayTransport::LocalTcp},
+        {"[::1]:1.2", true, 1, 2, true, XDisplayTransport::LocalTcp},
+        {"tcp/localhost:1", true, 1, 0, false, XDisplayTransport::LocalTcp},
+        {"tcp/127.0.0.1:0.1", true, 0, 1, true, XDisplayTransport::LocalTcp},
+        {"tcp/[::1]:2", true, 2, 0, false, XDisplayTransport::LocalTcp},
+        {"TCP/localhost:8", true, 8, 0, false, XDisplayTransport::LocalTcp},
+        {"inet/localhost:3", true, 3, 0, false, XDisplayTransport::LocalTcp},
+        {"inet6/[::1]:4", true, 4, 0, false, XDisplayTransport::LocalTcp},
+        {"tcp/example.invalid:1", true, 1, 0, false, XDisplayTransport::Remote},
+        {"tcp/[2001:db8::1]:5", true, 5, 0, false, XDisplayTransport::Remote},
+        {"otherhost:1", true, 1, 0, false, XDisplayTransport::Remote},
+        {"otherhost:1.0", true, 1, 0, true, XDisplayTransport::Remote},
+    };
+    for (const Row& row : rows) {
+      const XDisplayParsed parsed = parse_x_display(row.spec);
+      CHECK(parsed.ok == row.ok);
+      if (!row.ok) {
+        CHECK(!local_x_display_number(row.spec));
+        continue;
+      }
+      CHECK(parsed.display == row.display);
+      CHECK(parsed.screen == row.screen);
+      CHECK(parsed.has_screen == row.has_screen);
+      CHECK(parsed.transport == row.transport);
+      const auto number = local_x_display_number(row.spec);
+      if (row.transport == XDisplayTransport::Remote) {
+        CHECK(!number);
+      } else {
+        CHECK(number && *number == row.display);
+      }
+    }
+    CHECK(gpu_label_for_x_connection(-1, "otherhost:1") == "Remote display");
+    CHECK(gpu_label_for_x_connection(-1, "tcp/example.invalid:9") == "Remote display");
+  }
+
+  // Root-owned processes: comm is readable when /proc/<pid>/fd is not.
+  {
+    const std::string self = comm_of_pid(getpid());
+    CHECK(!self.empty());
+    std::ifstream comm_file("/proc/1/comm");
+    std::string init_comm;
+    const bool comm_readable = static_cast<bool>(std::getline(comm_file, init_comm));
+    if (!init_comm.empty() && (init_comm.back() == '\n' || init_comm.back() == '\r')) {
+      init_comm.pop_back();
+    }
+    DIR* fd_dir = opendir("/proc/1/fd");
+    const bool fd_readable = fd_dir != nullptr;
+    if (fd_dir) closedir(fd_dir);
+    if (comm_readable && !fd_readable) {
+      CHECK(comm_of_pid(1) == init_comm);
+      CHECK(!comm_of_pid(1).empty());
+    }
+    CHECK(comm_of_pid(-1).empty());
+    CHECK(comm_of_pid(0).empty());
+  }
+
+  // A root-owned Xvfb is named from SO_PEERCRED plus /proc/<pid>/comm.
+  {
+    int display = -1;
+    for (int n = 40; n < 80; ++n) {
+      const std::string path = "/tmp/.X11-unix/X" + std::to_string(n);
+      if (access(path.c_str(), F_OK) != 0) {
+        display = n;
+        break;
+      }
+    }
+    CHECK(display >= 0);
+    pid_t child = -1;
+    if (display >= 0) {
+      child = fork();
+      if (child == 0) {
+        const int devnull = open("/dev/null", O_RDWR);
+        if (devnull >= 0) {
+          dup2(devnull, STDOUT_FILENO);
+          dup2(devnull, STDERR_FILENO);
+          if (devnull > 2) close(devnull);
+        }
+        const std::string spec = ":" + std::to_string(display);
+        execlp("sudo", "sudo", "-n", "Xvfb", spec.c_str(), "-screen", "0", "640x480x24",
+               "-nolisten", "tcp", "-ac", static_cast<char*>(nullptr));
+        _exit(127);
+      }
+    }
+    bool started = false;
+    if (child > 0) {
+      const std::string path = "/tmp/.X11-unix/X" + std::to_string(display);
+      for (int i = 0; i < 40; ++i) {
+        if (access(path.c_str(), F_OK) == 0) {
+          started = true;
+          break;
+        }
+        usleep(50000);
+      }
+    }
+    auto stop_root = [&]() {
+      if (display >= 0) {
+        const std::string spec = ":" + std::to_string(display);
+        Display* dpy = XOpenDisplay(spec.c_str());
+        pid_t peer = -1;
+        if (dpy) {
+          peer = x_peer_cred_from_fd(XConnectionNumber(dpy)).pid;
+          XCloseDisplay(dpy);
+        }
+        if (peer > 0) {
+          const pid_t killer = fork();
+          if (killer == 0) {
+            const std::string pid_text = std::to_string(peer);
+            execlp("sudo", "sudo", "-n", "kill", "-TERM", pid_text.c_str(),
+                   static_cast<char*>(nullptr));
+            _exit(127);
+          }
+          if (killer > 0) waitpid(killer, nullptr, 0);
+        }
+      }
+      if (child > 0) {
+        kill(child, SIGTERM);
+        waitpid(child, nullptr, 0);
+        child = -1;
+      }
+    };
+    if (!started) {
+      stop_root();
+      std::cout << "SKIP root Xvfb (could not start)\n";
+    } else {
+      const std::string spec = ":" + std::to_string(display);
+      Display* dpy = nullptr;
+      for (int i = 0; i < 20 && !dpy; ++i) {
+        dpy = XOpenDisplay(spec.c_str());
+        if (!dpy) usleep(50000);
+      }
+      CHECK(dpy != nullptr);
+      if (dpy) {
+        const XPeerCred peer = x_peer_cred_from_fd(XConnectionNumber(dpy));
+        XCloseDisplay(dpy);
+        CHECK(peer.supported);
+        CHECK(peer.have_pid);
+        CHECK(peer.uid == 0);
+        CHECK(peer.comm == "Xvfb");
+        CHECK(server_comm_owning_display(spec) == "Xvfb");
+        CHECK(server_comm_owning_display("unix/:" + std::to_string(display)) == "Xvfb");
+        CHECK(virtual_display_label_for_server(peer.comm) == "Virtual framebuffer (Xvfb)");
+        DIR* fd_dir = opendir(("/proc/" + std::to_string(peer.pid) + "/fd").c_str());
+        const bool fd_readable = fd_dir != nullptr;
+        if (fd_dir) closedir(fd_dir);
+        CHECK(!fd_readable);
+        CHECK(comm_of_pid(peer.pid) == "Xvfb");
+      }
+      stop_root();
+    }
+  }
+
+  // Hybrid GPUs: both adapters, display controller first. One card keeps one name.
+  {
+    std::istringstream ids(
+        "8086  Intel Corporation\n"
+        "\t9a49  TigerLake-LP GT2 [Iris Xe Graphics]\n"
+        "1002  Advanced Micro Devices, Inc. [AMD/ATI]\n"
+        "\t67df  Ellesmere [Radeon RX 470/480/570/570X/580/580X/590]\n"
+        "\t73bf  Navi 21 [Radeon RX 6800/6800 XT / 6900 XT]\n");
+    const PciDb db = parse_pci_ids(ids);
+    const std::vector<GpuDevice> same_card{
+        GpuDevice{"0000:01:00.0", 0x030000, 0x1002, 0x73bf, "amdgpu"},
+        GpuDevice{"0000:01:00.1", 0x030200, 0x1002, 0x73bf, "amdgpu"},
+    };
+    const std::string collapsed = gpu_label_from_devices(same_card, db);
+    CHECK(collapsed.find("Navi") != std::string::npos);
+    CHECK(collapsed.find(';') == std::string::npos);
+
+    const std::vector<GpuDevice> two_3d{
+        GpuDevice{"0000:02:00.0", 0x030200, 0x1002, 0x67df, "amdgpu"},
+        GpuDevice{"0000:03:00.0", 0x030200, 0x1002, 0x73bf, "amdgpu"},
+    };
+    const std::string both_3d = gpu_label_from_devices(two_3d, db);
+    CHECK(both_3d.find("Ellesmere") != std::string::npos);
+    CHECK(both_3d.find("Navi") != std::string::npos);
+    CHECK(both_3d.find("Ellesmere") < both_3d.find("Navi"));
+
+    char tmpl[] = "/tmp/lcos-pci-XXXXXX";
+    char* dir = mkdtemp(tmpl);
+    CHECK(dir != nullptr);
+    if (dir) {
+      const std::string root(dir);
+      auto write_dev = [&](const std::string& slot, const char* cls, const char* vendor,
+                           const char* device, const char* driver) {
+        const std::string base = root + "/" + slot;
+        CHECK(mkdir(base.c_str(), 0755) == 0);
+        auto put = [&](const char* name, const char* text) {
+          std::ofstream out(base + "/" + name);
+          out << text << "\n";
+          CHECK(static_cast<bool>(out));
+        };
+        put("class", cls);
+        put("vendor", vendor);
+        put("device", device);
+        std::ofstream uevent(base + "/uevent");
+        uevent << "DRIVER=" << driver << "\nPCI_ID=" << vendor << ":" << device << "\n";
+        CHECK(static_cast<bool>(uevent));
+      };
+      write_dev("0000:00:02.0", "0x030000", "0x8086", "0x9a49", "i915");
+      write_dev("0000:01:00.0", "0x030200", "0x1002", "0x67df", "amdgpu");
+      write_dev("0000:00:1f.3", "0x040300", "0x8086", "0x0001", "snd_hda_intel");
+      const std::vector<GpuDevice> from_sys = gpu_devices_from_sysfs(root);
+      CHECK(from_sys.size() == 2);
+      const std::string label = gpu_label_from_devices(from_sys, db);
+      CHECK(label.find("Iris") != std::string::npos);
+      CHECK(label.find("Ellesmere") != std::string::npos);
+      CHECK(label.find("Iris") < label.find("Ellesmere"));
+      CHECK(label.find("snd") == std::string::npos);
+      CHECK(label.find("0001") == std::string::npos);
+      for (const char* slot : {"0000:00:02.0", "0000:01:00.0", "0000:00:1f.3"}) {
+        const std::string base = root + "/" + slot;
+        unlink((base + "/class").c_str());
+        unlink((base + "/vendor").c_str());
+        unlink((base + "/device").c_str());
+        unlink((base + "/uevent").c_str());
+        rmdir(base.c_str());
+      }
+      rmdir(root.c_str());
+    }
+  }
+
+  // CPU line: core and thread counts, including mixed model names.
+  {
+    std::ostringstream xeon;
+    for (int i = 0; i < 4; ++i) {
+      xeon << "processor\t: " << i << "\n"
+           << "model name\t: Intel(R) Xeon(R) Processor\n"
+           << "physical id\t: 0\n"
+           << "core id\t: " << i << "\n"
+           << "cpu cores\t: 4\n"
+           << "siblings\t: 4\n\n";
+    }
+    std::istringstream xeon_in(xeon.str());
+    CHECK(cpu_model_from_cpuinfo(xeon_in) ==
+          "Intel(R) Xeon(R) Processor (4 cores, 4 threads)");
+
+    std::ostringstream ht;
+    for (int i = 0; i < 4; ++i) {
+      ht << "processor\t: " << i << "\n"
+         << "model name\t: HT CPU\n"
+         << "physical id\t: 0\n"
+         << "cpu cores\t: 2\n"
+         << "siblings\t: 4\n\n";
+    }
+    std::istringstream ht_in(ht.str());
+    CHECK(cpu_model_from_cpuinfo(ht_in) == "HT CPU (2 cores, 4 threads)");
+
+    std::ostringstream ht_ids;
+    for (int i = 0; i < 4; ++i) {
+      ht_ids << "processor\t: " << i << "\n"
+             << "model name\t: HT CPU\n"
+             << "physical id\t: 0\n"
+             << "core id\t: " << (i % 2) << "\n\n";
+    }
+    std::istringstream ht_ids_in(ht_ids.str());
+    CHECK(cpu_model_from_cpuinfo(ht_ids_in) == "HT CPU (2 cores, 4 threads)");
+
+    std::ostringstream mixed;
+    mixed << "processor\t: 0\nmodel name\t: Cortex-A78\nphysical id\t: 0\ncore id\t: 0\n\n"
+          << "processor\t: 1\nmodel name\t: Cortex-A78\nphysical id\t: 0\ncore id\t: 1\n\n"
+          << "processor\t: 2\nmodel name\t: Cortex-A55\nphysical id\t: 1\ncore id\t: 0\n\n"
+          << "processor\t: 3\nmodel name\t: Cortex-A55\nphysical id\t: 1\ncore id\t: 1\n\n"
+          << "processor\t: 4\nmodel name\t: Cortex-A55\nphysical id\t: 1\ncore id\t: 2\n\n"
+          << "processor\t: 5\nmodel name\t: Cortex-A55\nphysical id\t: 1\ncore id\t: 3\n\n";
+    std::istringstream mixed_in(mixed.str());
+    CHECK(cpu_model_from_cpuinfo(mixed_in) ==
+          "Cortex-A78 (2 cores, 2 threads); Cortex-A55 (4 cores, 4 threads)");
+
+    std::ostringstream many;
+    for (int i = 0; i < 128; ++i) {
+      many << "processor\t: " << i << "\n"
+           << "model name\t: Same CPU\n"
+           << "physical id\t: " << (i / 64) << "\n"
+           << "core id\t: " << (i % 64) << "\n\n";
+    }
+    std::istringstream many_in(many.str());
+    const std::string many_line = cpu_model_from_cpuinfo(many_in);
+    CHECK(many_line == "Same CPU (128 cores, 128 threads)");
+    CHECK(many_line != "Same CPU");
+
+    std::istringstream blank_block(
+        "processor\t: 0\nmodel name\t:\n\nprocessor\t: 1\nmodel name\t: Kept\ncore id\t: 0\n\n");
+    CHECK(cpu_model_from_cpuinfo(blank_block) == "Kept (1 core, 1 thread)");
   }
 
   if (g_failures != 0) {

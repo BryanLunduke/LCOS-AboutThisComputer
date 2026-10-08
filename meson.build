@@ -20,7 +20,6 @@ conf = configuration_data()
 conf.set_quoted('APP_VERSION', meson.project_version())
 conf.set_quoted('APP_ID', 'org.lunduke.AboutThisComputer')
 conf.set_quoted('DATADIR', join_paths(get_option('prefix'), get_option('datadir'), 'lunduke-about'))
-conf.set_quoted('SOURCE_DATADIR', join_paths(meson.current_source_dir(), 'data'))
 
 configure_file(
   output: 'config.h',
@@ -44,6 +43,7 @@ about_logic_test = executable(
   'about-logic-test',
   files('tests/logic_test.cpp', 'src/about_logic.cpp', 'src/system_info.cpp'),
   include_directories: lunduke_about_inc,
+  dependencies: [x11_dep],
 )
 test('about-logic', about_logic_test, timeout: 60)
 

@@ -22,6 +22,8 @@ public:
   void set_force_close_handler(ForceCloseHandler handler);
 
 protected:
+  bool on_draw(const Cairo::RefPtr<Cairo::Context>& cr) override;
+  void on_grab_focus() override;
   bool on_button_press_event(GdkEventButton* event) override;
   bool on_key_press_event(GdkEventKey* event) override;
   bool on_focus(Gtk::DirectionType direction) override;
@@ -35,6 +37,7 @@ private:
   void apply_entry_text();
   void rebuild_menu_item();
   void popup_force_close_menu(const GdkEvent* event);
+  void redraw_focus_row();
   static bool same_pixbuf(const Glib::RefPtr<Gdk::Pixbuf>& a,
                           const Glib::RefPtr<Gdk::Pixbuf>& b);
   static std::string memory_caption(const AppEntry& entry);
