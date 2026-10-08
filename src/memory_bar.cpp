@@ -13,8 +13,19 @@ MemoryBar::MemoryBar() {
   set_valign(Gtk::ALIGN_CENTER);
 }
 
+void MemoryBar::set_unknown() {
+  unknown_ = true;
+  used_kb_ = 0;
+  total_kb_ = 0;
+  show_free_ = false;
+  used_caption_.clear();
+  free_caption_.clear();
+  queue_draw();
+}
+
 void MemoryBar::set_memory(long used_kb, long total_kb, const std::string& used_amount,
                            const std::string& free_amount) {
+  unknown_ = false;
   const long raw_used = used_kb;
   const long raw_total = total_kb;
   used_kb_ = std::max(0L, raw_used);
@@ -38,8 +49,9 @@ bool MemoryBar::on_draw(const Cairo::RefPtr<Cairo::Context>& cr) {
   const double bar_h = h - 1.0;
 
   const double used_frac =
-      (total_kb_ > 0) ? std::clamp(static_cast<double>(used_kb_) / total_kb_, 0.0, 1.0)
-                      : 0.0;
+      (!unknown_ && total_kb_ > 0)
+          ? std::clamp(static_cast<double>(used_kb_) / total_kb_, 0.0, 1.0)
+          : 0.0;
   const double used_w = bar_w * used_frac;
   const double free_w = bar_w - used_w;
 
@@ -86,6 +98,16 @@ bool MemoryBar::on_draw(const Cairo::RefPtr<Cairo::Context>& cr) {
     layout->get_pixel_size(tw, th);
     return layout;
   };
+
+  if (unknown_) {
+    int tw = 0;
+    int th = 0;
+    auto layout = make_layout("Unknown", tw, th);
+    cr->set_source_rgb(0.1, 0.1, 0.1);
+    cr->move_to(x + std::max(0.0, (bar_w - tw) / 2.0), y + std::max(0.0, (bar_h - th) / 2.0));
+    layout->show_in_cairo_context(cr);
+    return true;
+  }
 
   int utw = 0, uth = 0;
   auto used_layout = make_layout(used_caption_, utw, uth);

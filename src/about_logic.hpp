@@ -107,8 +107,25 @@ std::vector<ProcPin> collect_kill_pins(
     const std::unordered_map<pid_t, std::vector<pid_t>>& children,
     const std::unordered_set<pid_t>& row_pids);
 
-// Each pid contributes its RssAnon once, even if two rows list it.
+// Each pid contributes its charged anonymous memory once, even if two rows list it.
 long long sum_rss_once(const std::vector<ProcPin>& pins);
+
+// smaps_rollup fields used for per-process anonymous memory. Pss_Anon is the
+// proportional share of anonymous pages (shared pages count once when the
+// shares are added). Private_Dirty is the fallback when the kernel has no
+// Pss_Anon line: those pages are private, so they are not repeated.
+struct SmapsRollup {
+  bool saw_pss_anon = false;
+  bool saw_private_dirty = false;
+  long pss_anon_kb = 0;
+  long private_dirty_kb = 0;
+};
+
+SmapsRollup parse_smaps_rollup(const std::string& text);
+// nullopt when neither field was present.
+std::optional<long> anon_charge_kb(const SmapsRollup& rollup);
+// have_rollup false, or a rollup with neither field, uses rss_anon_kb.
+long process_anon_charge_kb(bool have_rollup, const SmapsRollup& rollup, long rss_anon_kb);
 
 struct SystemRemainder {
   long shown_kb = 0;
@@ -167,6 +184,9 @@ struct GroupedApp {
   bool has_pid = false;
   std::string name;
   std::string tooltip;
+  // Valid UTF-8 WM_CLASS class, before any disambiguating suffix. Empty when
+  // the class was missing or not UTF-8.
+  std::string class_name;
   bool protected_app = false;
   std::string protect_reason;
   std::string comm;
@@ -178,7 +198,7 @@ struct GroupedApp {
 // prefers an active Normal window, then a Normal window with a title and an
 // icon. Splash, menu, tooltip, and notification windows are not rows.
 // A pid whose windows are only dock, desktop, utility, or skip-taskbar still
-// gets a row so its RssAnon is subtracted from LCOS System.
+// gets a row so its anonymous memory is subtracted from LCOS System.
 // Protection comes from /proc comm, not from a foreign WM_CLASS.
 std::vector<GroupedApp> group_windows(const std::vector<WindowFact>& windows);
 
@@ -219,5 +239,83 @@ enum class CreditsTickResult {
 CreditsTickResult credits_on_tick(bool names_overflow, bool pointer_over);
 
 double clamp_scroll_value(double value, double upper, double page_size);
+
+// True when a row whose bottom is row_bottom has been given a place inside
+// the current adjustment upper. A short upper left over from the previous
+// list is not ready: clamping the saved pixel onto it would stick.
+bool scroll_anchor_ready(double row_bottom, double upper);
+
+// Viewport value that puts row_y + delta at the top, clamped to the range.
+double anchored_scroll_value(double row_y, double delta, double upper, double page);
+
+// nullopt until the new layout can hold the anchored row. Callers must not
+// fall back to clamping against a short upper.
+std::optional<double> restore_anchored_scroll(bool layout_ready, double row_y, double delta,
+                                              double row_bottom, double upper, double page);
+
+// Byte string is well-formed UTF-8 with no embedded NUL and no surrogate.
+bool utf8_valid(const std::string& text);
+
+// Menu labels parse '_' as a mnemonic. A doubled underscore is shown as one.
+std::string escape_mnemonic(const std::string& text);
+std::string force_close_menu_label(const std::string& row_name, bool can_close,
+                                   const std::string& protect_reason);
+std::string row_tooltip_text(const std::string& title_or_name);
+
+// GDK_KEY_Menu, the XF86 menu key beside the keypad (GDK_KEY_MenuKB), and
+// Shift+F10. Plain F10 is not a Force Close key.
+bool is_force_close_popup_key(unsigned keyval, unsigned state);
+
+// What to do with the result of pidfd_open. ESRCH means the process is gone.
+// ENOSYS and every other errno (EMFILE, ENOMEM, EPERM, EINVAL) use kill()
+// after the start-time check, the same as a kernel without pidfd.
+enum class PidfdOpenAction {
+  SendOnPidfd,
+  FallbackKill,
+  AlreadyExited,
+};
+
+PidfdOpenAction pidfd_open_action(int pidfd, int err);
+
+// pidfd_send_signal failed. ENOSYS falls back to kill(). ESRCH is exit.
+// Any other errno is reported; kill() would drop the pin.
+enum class PidfdSignalFailure {
+  FallbackKill,
+  AlreadyExited,
+  ReportErrno,
+};
+
+PidfdSignalFailure pidfd_signal_failure(int err);
+std::string force_close_errno_message(pid_t pid, int err);
+
+struct ForceCloseOrder {
+  pid_t root = 0;
+  std::vector<pid_t> helpers;
+};
+
+// Root first, then other pins in their existing order. Helpers are not
+// signalled when the root signal fails.
+ForceCloseOrder force_close_signal_order(pid_t root, const std::vector<ProcPin>& pins);
+bool force_close_should_signal_helpers(bool root_signalled);
+
+struct HelperCloseReport {
+  std::vector<pid_t> signalled;
+  std::vector<std::string> failures;
+};
+
+void helper_close_note(HelperCloseReport& report, pid_t pid, bool ok, const std::string& why);
+std::string helper_close_message(const HelperCloseReport& report);
+
+struct ForceClosePrompt {
+  std::string primary;
+  std::string secondary;
+};
+
+// Title uses the row the user clicked. The body names the command and PID
+// in ordinary language. window_class is the raw class, not a disambiguated
+// label; the mismatch line is kept when that class and the command differ.
+ForceClosePrompt force_close_prompt(const std::string& row_name, const std::string& command,
+                                    pid_t pid, const std::string& window_class,
+                                    bool window_still_there);
 
 }  // namespace lundukeabout

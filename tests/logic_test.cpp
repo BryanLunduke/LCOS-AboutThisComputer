@@ -3,6 +3,7 @@
 #include "system_info.hpp"
 
 #include <algorithm>
+#include <cerrno>
 #include <climits>
 #include <iostream>
 #include <sstream>
@@ -609,6 +610,261 @@ int main() {
     const OsRelease odd_rel = parse_os_release(odd);
     CHECK(odd_rel.id == "lcos");
     CHECK(os_display_name(odd_rel, sample_rel, true) == "Computer Operating System");
+  }
+
+  // Finding 1: pidfd_open errors other than ESRCH fall back to kill().
+  // ESRCH is "already exited", not a guess. A refused pidfd_send_signal
+  // keeps the pin and reports strerror plus the PID.
+  {
+    CHECK(pidfd_open_action(-1, EMFILE) == PidfdOpenAction::FallbackKill);
+    CHECK(pidfd_open_action(-1, ENOSYS) == PidfdOpenAction::FallbackKill);
+    CHECK(pidfd_open_action(-1, ENOMEM) == PidfdOpenAction::FallbackKill);
+    CHECK(pidfd_open_action(-1, EPERM) == PidfdOpenAction::FallbackKill);
+    CHECK(pidfd_open_action(-1, EINVAL) == PidfdOpenAction::FallbackKill);
+    CHECK(pidfd_open_action(-1, ESRCH) == PidfdOpenAction::AlreadyExited);
+    CHECK(pidfd_open_action(4, EMFILE) == PidfdOpenAction::SendOnPidfd);
+    CHECK(pidfd_signal_failure(ENOSYS) == PidfdSignalFailure::FallbackKill);
+    CHECK(pidfd_signal_failure(ESRCH) == PidfdSignalFailure::AlreadyExited);
+    CHECK(pidfd_signal_failure(EPERM) == PidfdSignalFailure::ReportErrno);
+    const std::string msg = force_close_errno_message(10941, EMFILE);
+    CHECK(msg.find("10941") != std::string::npos);
+    CHECK(msg.find("Too many open files") != std::string::npos);
+    CHECK(msg.find("Already exited") == std::string::npos);
+  }
+
+  // Finding 2: the named PID is first. Helpers are not signalled when it fails.
+  // A helper error after a successful close names both PIDs.
+  {
+    const std::vector<ProcPin> pins{ProcPin{11, 2, 50}, ProcPin{10, 1, 100}, ProcPin{12, 3, 5}};
+    const ForceCloseOrder order = force_close_signal_order(10, pins);
+    CHECK(order.root == 10);
+    CHECK(order.helpers.size() == 2);
+    CHECK(order.helpers[0] == 11);
+    CHECK(order.helpers[1] == 12);
+    CHECK(force_close_should_signal_helpers(false) == false);
+    CHECK(force_close_should_signal_helpers(true));
+    HelperCloseReport report;
+    helper_close_note(report, 10, true, "");
+    helper_close_note(report, 11, false, "Operation not permitted");
+    helper_close_note(report, 12, false, "Already exited.");
+    const std::string msg = helper_close_message(report);
+    CHECK(msg.find("PID 10") != std::string::npos);
+    CHECK(msg.find("PID 11") != std::string::npos);
+    CHECK(msg.find("Operation not permitted") != std::string::npos);
+    CHECK(msg.find("Already exited") == std::string::npos);
+    HelperCloseReport skipped;
+    helper_close_note(skipped, 10, true, "");
+    helper_close_note(skipped, 11, false, "That PID belongs to another row and was not signalled.");
+    CHECK(helper_close_message(skipped).empty());
+  }
+
+  // Finding 3: shared anonymous pages are charged once via Pss_Anon.
+  {
+    const char* parent =
+        "Rss: 50000 kB\nPss_Anon: 20702 kB\nPrivate_Dirty: 68 kB\nAnonymous: 41188 kB\n";
+    const char* child =
+        "Rss: 70000 kB\nPss_Anon: 41106 kB\nPrivate_Dirty: 20540 kB\nAnonymous: 61660 kB\n";
+    const SmapsRollup parent_roll = parse_smaps_rollup(parent);
+    const SmapsRollup child_roll = parse_smaps_rollup(child);
+    CHECK(parent_roll.saw_pss_anon);
+    CHECK(parent_roll.pss_anon_kb == 20702);
+    const long parent_kb = process_anon_charge_kb(true, parent_roll, 41188);
+    const long child_kb = process_anon_charge_kb(true, child_roll, 61660);
+    CHECK(parent_kb == 20702);
+    CHECK(child_kb == 41106);
+    CHECK(parent_kb + child_kb < 41188 + 61660);
+    SmapsRollup dirty_only;
+    dirty_only.saw_private_dirty = true;
+    dirty_only.private_dirty_kb = 80;
+    CHECK(process_anon_charge_kb(true, dirty_only, 400) == 80);
+    SmapsRollup empty;
+    CHECK(process_anon_charge_kb(true, empty, 400) == 400);
+    CHECK(process_anon_charge_kb(false, parent_roll, 400) == 400);
+    std::vector<ProcPin> charged{ProcPin{1, 1, parent_kb}, ProcPin{2, 2, child_kb}};
+    CHECK(sum_rss_once(charged) == parent_kb + child_kb);
+  }
+
+  // Finding 4: a non-UTF-8 class and title fall back to the command.
+  {
+    CHECK(utf8_valid("Caf\xC3\xA9"));
+    CHECK(utf8_valid("Caf\xE9") == false);
+    CHECK(utf8_valid(std::string("a\0b", 3)) == false);
+    WindowFact latin = fact(1, 20, true, WindowKind::Normal);
+    latin.res_class = "Caf\xE9";
+    latin.res_name = "Caf\xE9";
+    latin.title = "Caf\xE9";
+    latin.comm = "testwin";
+    latin.identity_ok = true;
+    const auto grouped = group_windows({latin});
+    CHECK(grouped.size() == 1);
+    if (!grouped.empty()) {
+      CHECK(grouped[0].name == "testwin");
+      CHECK(grouped[0].class_name.empty());
+      CHECK(utf8_valid(grouped[0].name));
+      CHECK(utf8_valid(grouped[0].tooltip));
+      CHECK(grouped[0].tooltip == "testwin");
+    }
+    WindowFact titled = fact(2, 21, true, WindowKind::Normal);
+    titled.res_class = "Caf\xE9";
+    titled.res_name.clear();
+    titled.title = "Hello";
+    titled.comm = "testwin";
+    const auto via_comm = group_windows({titled});
+    CHECK(!via_comm.empty());
+    if (!via_comm.empty()) CHECK(via_comm[0].name == "testwin");
+    WindowFact cafe = fact(3, 22, true, WindowKind::Normal);
+    cafe.res_class = "Caf\xC3\xA9";
+    cafe.title = "Cup";
+    cafe.comm = "testwin";
+    const auto kept = group_windows({cafe});
+    CHECK(!kept.empty());
+    if (!kept.empty()) {
+      CHECK(kept[0].name == "Caf\xC3\xA9");
+      CHECK(kept[0].class_name == "Caf\xC3\xA9");
+      CHECK(kept[0].tooltip == "Cup");
+    }
+  }
+
+  // Finding 5: an underscore in the menu label is escaped, so it matches the row.
+  {
+    CHECK(escape_mnemonic("My_App") == "My__App");
+    CHECK(force_close_menu_label("My_App", true, "") == "Force Close My__App");
+    CHECK(force_close_menu_label("My_App", false, "No process ID") == "No process ID");
+    CHECK(force_close_menu_label("Plain", true, "") == "Force Close Plain");
+  }
+
+  // Finding 6: a blank model name is skipped. Hardware is only a fallback.
+  {
+    std::istringstream blank_then_real("model name\t: \nmodel name\t: Different\n");
+    CHECK(cpu_model_from_cpuinfo(blank_then_real) == "Different");
+    std::istringstream only_blank("model name\t:\nprocessor\t: 0\n");
+    CHECK(cpu_model_from_cpuinfo(only_blank) == "Unknown CPU");
+    std::istringstream hardware("model name\t:\nHardware\t: Board\nProcessor\t: ARM\n");
+    CHECK(cpu_model_from_cpuinfo(hardware) == "Board");
+    std::istringstream arm("model name\t: \nProcessor\t: ARM926\n");
+    CHECK(cpu_model_from_cpuinfo(arm) == "ARM926");
+    std::istringstream normal("processor\t: 0\nmodel name\t: Real CPU\n");
+    CHECK(cpu_model_from_cpuinfo(normal) == "Real CPU");
+  }
+
+  // Finding 7: missing MemTotal is unknown. MemTotal 0 with MemAvailable 0 is real.
+  {
+    std::istringstream missing(
+        "MemFree:         100 kB\n"
+        "Buffers:          10 kB\n"
+        "Cached:           20 kB\n");
+    const MemoryUsage unknown = memory_usage_from_meminfo(parse_meminfo(missing));
+    CHECK(unknown.known == false);
+    CHECK(unknown.total_kb == 0);
+    CHECK(unknown.used_kb == 0);
+    std::istringstream zero_total("MemTotal: 0 kB\nMemAvailable: 0 kB\n");
+    const MemoryUsage zero = memory_usage_from_meminfo(parse_meminfo(zero_total));
+    CHECK(zero.known);
+    CHECK(zero.total_kb == 0);
+    CHECK(zero.available_kb == 0);
+    CHECK(zero.used_kb == 0);
+    std::istringstream present(
+        "MemTotal:       1000 kB\n"
+        "MemAvailable:    100 kB\n");
+    CHECK(memory_usage_from_meminfo(parse_meminfo(present)).known);
+  }
+
+  // Finding 9: do not clamp the saved pixel until the anchored row fits.
+  {
+    CHECK(scroll_anchor_ready(450, 100) == false);
+    CHECK(scroll_anchor_ready(450, 450));
+    CHECK(scroll_anchor_ready(450, 500));
+    CHECK(clamp_scroll_value(400, 100, 80) == 20);
+    CHECK(!restore_anchored_scroll(false, 300, 15, 450, 800, 200));
+    CHECK(!restore_anchored_scroll(true, 300, 15, 450, 100, 80));
+    const auto ready = restore_anchored_scroll(true, 300, 15, 360, 800, 200);
+    CHECK(ready.has_value());
+    if (ready) CHECK(*ready == 315);
+    const auto clamped = restore_anchored_scroll(true, 700, 0, 760, 800, 200);
+    CHECK(clamped.has_value());
+    if (clamped) CHECK(*clamped == 600);
+  }
+
+  // Finding 10: Menu, the keypad menu key, and Shift+F10. Plain F10 does not.
+  {
+    CHECK(is_force_close_popup_key(0xff67u, 0));
+    CHECK(is_force_close_popup_key(0x1008ff65u, 0));
+    CHECK(is_force_close_popup_key(0xffc7u, 1u));
+    CHECK(is_force_close_popup_key(0xffc7u, 0) == false);
+    CHECK(is_force_close_popup_key(0xff0du, 0) == false);
+    const std::string tip = row_tooltip_text("Document");
+    CHECK(tip.find("Document") != std::string::npos);
+    CHECK(tip.find("Right-click or press the Menu key to Force Close") != std::string::npos);
+  }
+
+  // Finding 12: shared names gain a title, or a pid when the title matches too.
+  {
+    WindowFact one = fact(1, 30, true, WindowKind::Normal);
+    one.res_class = "My_App";
+    one.title = "Alpha";
+    WindowFact two = fact(2, 31, true, WindowKind::Normal);
+    two.res_class = "My_App";
+    two.title = "Beta";
+    const auto distinct = group_windows({one, two});
+    CHECK(distinct.size() == 2);
+    if (distinct.size() == 2) {
+      CHECK(distinct[0].name.find("Alpha") != std::string::npos);
+      CHECK(distinct[1].name.find("Beta") != std::string::npos);
+      CHECK(distinct[0].name.find("pid") == std::string::npos);
+      CHECK(distinct[1].name.find("pid") == std::string::npos);
+      CHECK(distinct[0].class_name == "My_App");
+      CHECK(distinct[0].name != distinct[1].name);
+    }
+    WindowFact same_a = fact(3, 32, true, WindowKind::Normal);
+    same_a.res_class = "My_App";
+    same_a.title = "Same";
+    WindowFact same_b = fact(4, 33, true, WindowKind::Normal);
+    same_b.res_class = "My_App";
+    same_b.title = "Same";
+    const auto same = group_windows({same_a, same_b});
+    CHECK(same.size() == 2);
+    if (same.size() == 2) {
+      CHECK(same[0].name.find("pid 32") != std::string::npos);
+      CHECK(same[1].name.find("pid 33") != std::string::npos);
+      CHECK(same[0].name != same[1].name);
+    }
+    WindowFact only = fact(5, 34, true, WindowKind::Normal);
+    only.res_class = "Only";
+    only.title = "Doc";
+    const auto single = group_windows({only});
+    CHECK(!single.empty());
+    if (!single.empty()) CHECK(single[0].name == "Only");
+  }
+
+  // Finding 13: the question uses the row name. The body is plain language.
+  {
+    const ForceClosePrompt prompt = force_close_prompt("GoodApp", "testwin", 10941, "GoodApp", true);
+    CHECK(prompt.primary == "Force Close \"GoodApp\"?");
+    CHECK(prompt.secondary.find("SIGKILL") == std::string::npos);
+    CHECK(prompt.secondary.find("quit GoodApp immediately") != std::string::npos);
+    CHECK(prompt.secondary.find("command testwin") != std::string::npos);
+    CHECK(prompt.secondary.find("PID 10941") != std::string::npos);
+    CHECK(prompt.secondary.find("helper processes counted in this row") != std::string::npos);
+    CHECK(prompt.secondary.find("Unsaved work will be lost.") != std::string::npos);
+    CHECK(prompt.secondary.find("does not match") != std::string::npos);
+    CHECK(prompt.secondary.find("already gone") == std::string::npos);
+    const ForceClosePrompt matched =
+        force_close_prompt("Firefox", "firefox", 10, "Firefox", false);
+    CHECK(matched.secondary.find("does not match") == std::string::npos);
+    CHECK(matched.secondary.find("already gone") != std::string::npos);
+    CHECK(matched.primary.find("Firefox") != std::string::npos);
+  }
+
+  // Finding 14: a virtual server that is not Xvfb is "Virtual display".
+  {
+    CHECK(virtual_display_label_from_comms({"Xtigervnc"}) == "Virtual display");
+    CHECK(virtual_display_label_from_comms({"Xvnc"}) == "Virtual display");
+    CHECK(virtual_display_label_from_comms({"Xephyr"}) == "Virtual display");
+    CHECK(virtual_display_label_from_comms({"Xvfb"}) == "Virtual framebuffer (Xvfb)");
+    CHECK(virtual_display_label_from_comms({"Xtigervnc", "Xvfb"}) == "Virtual framebuffer (Xvfb)");
+    CHECK(virtual_display_label_from_comms({"Xorg"}) == "Unknown GPU");
+    CHECK(virtual_display_label_from_comms({}) == "Unknown GPU");
+    CHECK(virtual_display_label_from_comms({"notXvfb"}) == "Unknown GPU");
   }
 
   if (g_failures != 0) {

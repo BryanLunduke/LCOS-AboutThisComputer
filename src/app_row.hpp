@@ -23,14 +23,18 @@ public:
 
 protected:
   bool on_button_press_event(GdkEventButton* event) override;
+  bool on_key_press_event(GdkEventKey* event) override;
 
 private:
   void on_force_close();
+  bool on_popup_menu();
   bool can_force_close() const;
   void rebuild_menu_item();
+  void popup_force_close_menu(const GdkEvent* event);
   static bool same_pixbuf(const Glib::RefPtr<Gdk::Pixbuf>& a,
                           const Glib::RefPtr<Gdk::Pixbuf>& b);
   static std::string memory_caption(const AppEntry& entry);
+  static Glib::ustring utf8_text(const std::string& text);
 
   AppEntry entry_;
   ForceCloseHandler handler_;

@@ -1,3 +1,39 @@
+lunduke-about (0.9-4) unstable; urgency=medium
+
+  * Force Close falls back to kill() when pidfd_open fails for a reason
+    other than ESRCH, and the error names the PID and strerror. "Already
+    exited." is only used when the process is gone. A pidfd_send_signal
+    error other than ENOSYS is reported and does not fall through to kill().
+  * The named process is signalled before its helpers. A failed signal
+    does not kill helpers. Helper errors after a successful close are shown.
+  * Per-app RAM uses Pss_Anon so shared anonymous pages are counted once.
+    Private_Dirty is the fallback when the kernel has no Pss_Anon field.
+  * Window class and title must be valid UTF-8. Otherwise the row uses
+    the process command, then a valid title, then the pid.
+  * Underscores in the Force Close menu label are escaped.
+  * An empty model name is skipped. The first non-empty model name is
+    shown, then Hardware or Processor.
+  * Missing MemTotal is "Unknown", not 0 MB. The RAM bar is not filled
+    and LCOS System shows an em dash.
+  * OS Version, memory, CPU, and GPU lines ellipsize, with the full text
+    in a tooltip.
+  * After the set of apps changes, scroll is restored to the row that was
+    at the top of the viewport, and only once that row has been laid out.
+  * Rows can be focused. The Menu key, the keypad menu key, and Shift+F10
+    open Force Close. The row tooltip says so.
+  * The list scrollbar is not an overlay. LCOS System stays under the RAM
+    bar, outside the scroller, so it is visible at 520×360.
+  * Rows that share a name append the title, or the PID when the title
+    matches too.
+  * The confirm dialog is titled with the row name and describes the close
+    in plain language. The class-mismatch line remains.
+  * With no display PCI device and no DRM card, Xvfb stays
+    "Virtual framebuffer (Xvfb)". Xtigervnc, Xvnc, and Xephyr are
+    "Virtual display".
+  * Meson project version remains 0.9.
+
+ -- LCOS <lcos@lunduke.com>  Thu, 08 Oct 2026 08:00:00 +0000
+
 lunduke-about (0.9-3) unstable; urgency=medium
 
   * X properties are indexed only when format is 32 and the type matches.

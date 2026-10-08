@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cerrno>
 #include <climits>
 #include <cstdio>
 #include <cstdlib>
@@ -61,10 +62,12 @@ const ProtectRule kProtectRules[] = {
 };
 
 std::string application_name(const WindowFact& w) {
-  if (!w.res_class.empty()) return w.res_class;
-  if (!w.res_name.empty()) return w.res_name;
-  if (!w.comm.empty()) return w.comm;
-  if (!w.title.empty()) return w.title;
+  // A Latin-1 class or title is not a name. Fall through to the command,
+  // then a valid title, then the pid. Pango must not be handed those bytes.
+  if (utf8_valid(w.res_class) && !w.res_class.empty()) return w.res_class;
+  if (utf8_valid(w.res_name) && !w.res_name.empty()) return w.res_name;
+  if (utf8_valid(w.comm) && !w.comm.empty()) return w.comm;
+  if (utf8_valid(w.title) && !w.title.empty()) return w.title;
   if (w.has_pid && w.pid > 1) return "pid " + std::to_string(w.pid);
   return {};
 }
@@ -370,6 +373,37 @@ bool lists_without_normal(WindowKind kind) {
          kind == WindowKind::Utility;
 }
 
+std::string distinct_title(const GroupedApp& row) {
+  if (!utf8_valid(row.tooltip) || row.tooltip.empty() || row.tooltip == row.name) return {};
+  return row.tooltip;
+}
+
+void disambiguate_row_names(std::vector<GroupedApp>& rows) {
+  std::unordered_map<std::string, int> name_count;
+  for (const auto& row : rows) name_count[row.name]++;
+
+  std::unordered_map<std::string, int> title_count;
+  for (const auto& row : rows) {
+    if (name_count[row.name] < 2) continue;
+    title_count[row.name + "\n" + distinct_title(row)]++;
+  }
+
+  for (auto& row : rows) {
+    if (name_count[row.name] < 2) continue;
+    const std::string title = distinct_title(row);
+    const bool title_unique = !title.empty() && title_count[row.name + "\n" + title] == 1;
+    if (title_unique) {
+      row.name += " \u2014 " + title;
+      continue;
+    }
+    if (row.has_pid && row.pid > 1) {
+      row.name += " (pid " + std::to_string(row.pid) + ")";
+    } else {
+      row.name += " (window " + std::to_string(row.xid) + ")";
+    }
+  }
+}
+
 }  // namespace
 
 std::vector<GroupedApp> group_windows(const std::vector<WindowFact>& windows) {
@@ -419,7 +453,9 @@ std::vector<GroupedApp> group_windows(const std::vector<WindowFact>& windows) {
     g.pid = g.has_pid ? best->pid : 0;
     g.name = application_name(*best);
     if (g.name.empty()) continue;
-    g.tooltip = best->title.empty() ? g.name : best->title;
+    if (utf8_valid(best->res_class) && !best->res_class.empty()) g.class_name = best->res_class;
+    if (utf8_valid(best->title) && !best->title.empty()) g.tooltip = best->title;
+    else g.tooltip = g.name;
     g.comm = best->comm;
     g.start_ticks = best->start_ticks;
     g.identity_ok = best->identity_ok;
@@ -443,6 +479,7 @@ std::vector<GroupedApp> group_windows(const std::vector<WindowFact>& windows) {
     if (!g.has_pid && g.protect_reason.empty()) g.protect_reason = "No process ID";
     out.push_back(std::move(g));
   }
+  disambiguate_row_names(out);
   return out;
 }
 
@@ -549,6 +586,252 @@ double clamp_scroll_value(double value, double upper, double page_size) {
   if (value < 0.0) return 0.0;
   if (value > max_value) return max_value;
   return value;
+}
+
+bool scroll_anchor_ready(double row_bottom, double upper) {
+  if (upper <= 1.0) return false;
+  return row_bottom <= upper + 1.0;
+}
+
+double anchored_scroll_value(double row_y, double delta, double upper, double page) {
+  return clamp_scroll_value(row_y + delta, upper, page);
+}
+
+std::optional<double> restore_anchored_scroll(bool layout_ready, double row_y, double delta,
+                                              double row_bottom, double upper, double page) {
+  if (!layout_ready || !scroll_anchor_ready(row_bottom, upper)) return std::nullopt;
+  return anchored_scroll_value(row_y, delta, upper, page);
+}
+
+bool utf8_valid(const std::string& text) {
+  const auto* p = reinterpret_cast<const unsigned char*>(text.data());
+  const auto* end = p + text.size();
+  while (p < end) {
+    const unsigned char c = *p;
+    if (c == 0) return false;
+    if (c < 0x80) {
+      ++p;
+      continue;
+    }
+    unsigned long cp = 0;
+    int need = 0;
+    if ((c & 0xE0) == 0xC0) {
+      need = 1;
+      cp = c & 0x1Fu;
+    } else if ((c & 0xF0) == 0xE0) {
+      need = 2;
+      cp = c & 0x0Fu;
+    } else if ((c & 0xF8) == 0xF0) {
+      need = 3;
+      cp = c & 0x07u;
+    } else {
+      return false;
+    }
+    if (p + need >= end) return false;
+    for (int i = 1; i <= need; ++i) {
+      if ((p[i] & 0xC0) != 0x80) return false;
+      cp = (cp << 6) | (p[i] & 0x3Fu);
+    }
+    if (need == 1 && cp < 0x80) return false;
+    if (need == 2 && cp < 0x800) return false;
+    if (need == 3 && cp < 0x10000) return false;
+    if (cp > 0x10FFFFul) return false;
+    if (cp >= 0xD800ul && cp <= 0xDFFFul) return false;
+    p += static_cast<size_t>(need) + 1;
+  }
+  return true;
+}
+
+std::string escape_mnemonic(const std::string& text) {
+  std::string out;
+  out.reserve(text.size());
+  for (char c : text) {
+    if (c == '_') out.push_back('_');
+    out.push_back(c);
+  }
+  return out;
+}
+
+std::string force_close_menu_label(const std::string& row_name, bool can_close,
+                                   const std::string& protect_reason) {
+  if (can_close) return "Force Close " + escape_mnemonic(row_name);
+  std::string reason = protect_reason.empty() ? "Protected" : protect_reason;
+  return escape_mnemonic(reason);
+}
+
+std::string row_tooltip_text(const std::string& title_or_name) {
+  const char* hint = "Right-click or press the Menu key to Force Close";
+  if (title_or_name.empty()) return hint;
+  return title_or_name + "\n" + hint;
+}
+
+bool is_force_close_popup_key(unsigned keyval, unsigned state) {
+  constexpr unsigned kMenu = 0xff67u;
+  constexpr unsigned kMenuKB = 0x1008ff65u;
+  constexpr unsigned kF10 = 0xffc7u;
+  constexpr unsigned kShift = 1u;
+  if (keyval == kMenu || keyval == kMenuKB) return true;
+  if ((state & kShift) != 0 && keyval == kF10) return true;
+  return false;
+}
+
+PidfdOpenAction pidfd_open_action(int pidfd, int err) {
+  if (pidfd >= 0) return PidfdOpenAction::SendOnPidfd;
+  if (err == ESRCH) return PidfdOpenAction::AlreadyExited;
+  return PidfdOpenAction::FallbackKill;
+}
+
+PidfdSignalFailure pidfd_signal_failure(int err) {
+  if (err == ENOSYS) return PidfdSignalFailure::FallbackKill;
+  if (err == ESRCH) return PidfdSignalFailure::AlreadyExited;
+  return PidfdSignalFailure::ReportErrno;
+}
+
+std::string force_close_errno_message(pid_t pid, int err) {
+  const char* text = std::strerror(err);
+  if (!text || text[0] == '\0') text = "Unknown error";
+  return "Could not force-close PID " + std::to_string(pid) + ": " + text;
+}
+
+ForceCloseOrder force_close_signal_order(pid_t root, const std::vector<ProcPin>& pins) {
+  ForceCloseOrder order;
+  order.root = root;
+  for (const auto& pin : pins) {
+    if (pin.pid == root) continue;
+    order.helpers.push_back(pin.pid);
+  }
+  return order;
+}
+
+bool force_close_should_signal_helpers(bool root_signalled) { return root_signalled; }
+
+void helper_close_note(HelperCloseReport& report, pid_t pid, bool ok, const std::string& why) {
+  if (ok) {
+    report.signalled.push_back(pid);
+    return;
+  }
+  if (why.empty() || why == "Already exited.") return;
+  if (why == "That PID belongs to another row and was not signalled.") return;
+  report.failures.push_back("PID " + std::to_string(pid) + ": " + why);
+}
+
+std::string helper_close_message(const HelperCloseReport& report) {
+  if (report.failures.empty()) return {};
+  std::string msg = "Signalled";
+  if (report.signalled.empty()) {
+    msg += " nothing.";
+  } else {
+    for (size_t i = 0; i < report.signalled.size(); ++i) {
+      if (i == 0) msg += " PID ";
+      else msg += ", PID ";
+      msg += std::to_string(report.signalled[i]);
+    }
+    msg += ".";
+  }
+  for (const auto& line : report.failures) {
+    msg += "\n";
+    msg += line;
+  }
+  return msg;
+}
+
+namespace {
+
+std::string prompt_text(const std::string& text) {
+  if (utf8_valid(text)) return text;
+  std::string out;
+  out.reserve(text.size());
+  for (unsigned char c : text) {
+    if (c >= 0x20 && c < 0x7f) out.push_back(static_cast<char>(c));
+    else out.push_back('?');
+  }
+  return out;
+}
+
+bool same_name(const std::string& name, const std::string& comm) {
+  if (name.size() != comm.size()) return false;
+  for (size_t i = 0; i < name.size(); ++i) {
+    const unsigned char a = static_cast<unsigned char>(name[i]);
+    const unsigned char b = static_cast<unsigned char>(comm[i]);
+    if (std::tolower(a) != std::tolower(b)) return false;
+  }
+  return true;
+}
+
+}  // namespace
+
+ForceClosePrompt force_close_prompt(const std::string& row_name, const std::string& command,
+                                    pid_t pid, const std::string& window_class,
+                                    bool window_still_there) {
+  const std::string shown = prompt_text(!row_name.empty() ? row_name : command);
+  const std::string comm = prompt_text(command.empty() ? "unknown" : command);
+  const std::string klass = prompt_text(window_class);
+  ForceClosePrompt prompt;
+  prompt.primary = "Force Close \"" + shown + "\"?";
+  prompt.secondary = "This will quit " + shown + " immediately (command " + comm + ", PID " +
+                     std::to_string(pid) +
+                     "), including helper processes counted in this row. Unsaved work will be lost.";
+  if (!klass.empty() && !same_name(klass, command)) {
+    prompt.secondary += "\nWindow class \"" + klass + "\" does not match that command.";
+  }
+  if (!window_still_there) {
+    prompt.secondary +=
+        "\nThe listed window is already gone. The process is still closed when its command and "
+        "start time match this refresh.";
+  }
+  return prompt;
+}
+
+SmapsRollup parse_smaps_rollup(const std::string& text) {
+  SmapsRollup out;
+  std::string line;
+  auto take = [&]() {
+    if (!line.empty() && line.back() == '\r') line.pop_back();
+    const auto colon = line.find(':');
+    if (colon == std::string::npos) return;
+    const std::string key = line.substr(0, colon);
+    const auto pos = line.find_first_of("0123456789", colon + 1);
+    long value = 0;
+    bool saw_number = false;
+    if (pos != std::string::npos) {
+      try {
+        value = std::stol(line.substr(pos));
+        saw_number = true;
+      } catch (...) {
+        saw_number = false;
+      }
+    }
+    if (!saw_number) return;
+    if (key == "Pss_Anon") {
+      out.saw_pss_anon = true;
+      out.pss_anon_kb = value;
+    } else if (key == "Private_Dirty") {
+      out.saw_private_dirty = true;
+      out.private_dirty_kb = value;
+    }
+  };
+  for (size_t i = 0; i <= text.size(); ++i) {
+    if (i == text.size() || text[i] == '\n') {
+      take();
+      line.clear();
+    } else {
+      line.push_back(text[i]);
+    }
+  }
+  return out;
+}
+
+std::optional<long> anon_charge_kb(const SmapsRollup& rollup) {
+  if (rollup.saw_pss_anon) return rollup.pss_anon_kb;
+  if (rollup.saw_private_dirty) return rollup.private_dirty_kb;
+  return std::nullopt;
+}
+
+long process_anon_charge_kb(bool have_rollup, const SmapsRollup& rollup, long rss_anon_kb) {
+  if (have_rollup) {
+    if (const auto charge = anon_charge_kb(rollup)) return *charge;
+  }
+  return rss_anon_kb;
 }
 
 }  // namespace lundukeabout

@@ -51,25 +51,7 @@ std::string read_fd_limited(int fd) {
 
 std::string read_cpu_model() {
   std::ifstream in("/proc/cpuinfo");
-  std::string line;
-  while (std::getline(in, line)) {
-    if (line.rfind("model name", 0) == 0) {
-      auto colon = line.find(':');
-      if (colon != std::string::npos)
-        return trim(line.substr(colon + 1));
-    }
-  }
-  // Fallback (e.g. some ARM)
-  in.clear();
-  in.open("/proc/cpuinfo");
-  while (std::getline(in, line)) {
-    if (line.rfind("Hardware", 0) == 0 || line.rfind("Processor", 0) == 0) {
-      auto colon = line.find(':');
-      if (colon != std::string::npos)
-        return trim(line.substr(colon + 1));
-    }
-  }
-  return "Unknown CPU";
+  return cpu_model_from_cpuinfo(in);
 }
 
 bool parse_meminfo_line(const std::string& line, std::string& key, long& value) {
@@ -90,9 +72,14 @@ void apply_memory_fields(SystemInfo& info) {
   std::ifstream in("/proc/meminfo");
   if (in) snap = parse_meminfo(in);
   const MemoryUsage usage = memory_usage_from_meminfo(snap);
+  info.memory_known = usage.known;
   info.total_memory_kb = usage.total_kb;
   info.available_memory_kb = usage.available_kb;
   info.used_memory_kb = usage.used_kb;
+  if (!usage.known) {
+    info.total_memory = "Unknown";
+    return;
+  }
   info.total_memory = format_memory_human(info.total_memory_kb);
 }
 
@@ -145,23 +132,21 @@ std::string read_drm_fallback() {
   return "DRM: " + driver;
 }
 
-bool comm_is_xvfb() {
+std::vector<std::string> read_proc_comms() {
+  std::vector<std::string> comms;
   DIR* dir = opendir("/proc");
-  if (!dir) return false;
-  bool found = false;
+  if (!dir) return comms;
   while (dirent* de = readdir(dir)) {
     if (!std::isdigit(static_cast<unsigned char>(de->d_name[0]))) continue;
     std::ifstream in(std::string("/proc/") + de->d_name + "/comm");
     std::string comm;
     if (!std::getline(in, comm)) continue;
     if (!comm.empty() && comm.back() == '\n') comm.pop_back();
-    if (comm == "Xvfb") {
-      found = true;
-      break;
-    }
+    if (!comm.empty() && comm.back() == '\r') comm.pop_back();
+    if (!comm.empty()) comms.push_back(comm);
   }
   closedir(dir);
-  return found;
+  return comms;
 }
 
 // sysfs only on the startup path. lspci / glxinfo are not launched.
@@ -201,8 +186,7 @@ std::string read_gpu() {
   }
   value = gpu_label_from_devices(devices, db);
   if (value.empty()) value = read_drm_fallback();
-  if (value.empty() && comm_is_xvfb()) value = "Virtual framebuffer (Xvfb)";
-  if (value.empty()) value = "Unknown GPU";
+  if (value.empty()) value = virtual_display_label_from_comms(read_proc_comms());
   return value;
 }
 
@@ -263,6 +247,48 @@ std::string format_signed_kb(long kb) {
 }  // namespace
 
 std::string format_memory_human(long kb) { return format_signed_kb(kb); }
+
+std::string cpu_model_from_cpuinfo(std::istream& in) {
+  std::string hardware;
+  std::string processor;
+  std::string line;
+  auto trim_value = [](std::string s) {
+    while (!s.empty() && (s.back() == '\n' || s.back() == '\r' || s.back() == ' ' || s.back() == '\t'))
+      s.pop_back();
+    size_t i = 0;
+    while (i < s.size() && (s[i] == ' ' || s[i] == '\t')) ++i;
+    return s.substr(i);
+  };
+  while (std::getline(in, line)) {
+    if (!line.empty() && line.back() == '\r') line.pop_back();
+    const auto colon = line.find(':');
+    const bool model = line.rfind("model name", 0) == 0;
+    const bool hw = line.rfind("Hardware", 0) == 0;
+    const bool proc = line.rfind("Processor", 0) == 0;
+    if (!model && !hw && !proc) continue;
+    if (colon == std::string::npos) continue;
+    const std::string value = trim_value(line.substr(colon + 1));
+    if (value.empty()) continue;
+    if (model) return value;
+    if (hw && hardware.empty()) hardware = value;
+    if (proc && processor.empty()) processor = value;
+  }
+  if (!hardware.empty()) return hardware;
+  if (!processor.empty()) return processor;
+  return "Unknown CPU";
+}
+
+std::string virtual_display_label_from_comms(const std::vector<std::string>& comms) {
+  bool xvfb = false;
+  bool other_virtual = false;
+  for (const auto& comm : comms) {
+    if (comm == "Xvfb") xvfb = true;
+    else if (comm == "Xtigervnc" || comm == "Xvnc" || comm == "Xephyr") other_virtual = true;
+  }
+  if (xvfb) return "Virtual framebuffer (Xvfb)";
+  if (other_virtual) return "Virtual display";
+  return "Unknown GPU";
+}
 
 MemoryReadout format_memory_readout(long used_kb, long total_kb) {
   MemoryReadout out;
@@ -341,8 +367,10 @@ MemInfoSnapshot parse_meminfo(std::istream& in) {
     std::string key;
     long value = 0;
     if (!parse_meminfo_line(line, key, value)) continue;
-    if (key == "MemTotal:") snap.total_kb = value;
-    else if (key == "MemAvailable:") {
+    if (key == "MemTotal:") {
+      snap.total_kb = value;
+      snap.saw_total = true;
+    } else if (key == "MemAvailable:") {
       snap.available_kb = value;
       snap.saw_available = true;
     } else if (key == "MemFree:") snap.free_kb = value;
@@ -354,6 +382,8 @@ MemInfoSnapshot parse_meminfo(std::istream& in) {
 
 MemoryUsage memory_usage_from_meminfo(const MemInfoSnapshot& snap) {
   MemoryUsage usage;
+  if (!snap.saw_total) return usage;
+  usage.known = true;
   usage.total_kb = snap.total_kb;
   // MemAvailable: 0 is real (nothing reclaimable). Only an absent field
   // falls back to the older MemFree + Buffers + Cached estimate.

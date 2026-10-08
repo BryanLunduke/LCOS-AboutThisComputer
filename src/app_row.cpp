@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app_row.hpp"
+#include "about_logic.hpp"
 #include "system_info.hpp"
+
+#include <glib.h>
 
 #include <cstring>
 
@@ -27,6 +30,15 @@ std::string AppRow::memory_caption(const AppEntry& entry) {
   return format_memory_human(entry.rss_kb) + " RAM Used";
 }
 
+Glib::ustring AppRow::utf8_text(const std::string& text) {
+  if (text.empty()) return {};
+  if (g_utf8_validate(text.data(), static_cast<gssize>(text.size()), nullptr)) return text;
+  gchar* fixed = g_utf8_make_valid(text.data(), static_cast<gssize>(text.size()));
+  Glib::ustring out(fixed ? fixed : "");
+  g_free(fixed);
+  return out;
+}
+
 AppRow::AppRow(const AppEntry& entry) : entry_(entry) {
   set_visible_window(false);
   add(box_);
@@ -45,12 +57,14 @@ AppRow::AppRow(const AppEntry& entry) : entry_(entry) {
   icon_.set_valign(Gtk::ALIGN_CENTER);
   box_.pack_start(icon_, Gtk::PACK_SHRINK);
 
-  name_.set_text(entry.name);
+  name_.set_text(utf8_text(entry.name));
   name_.set_halign(Gtk::ALIGN_START);
   name_.set_xalign(0.0f);
   name_.set_ellipsize(Pango::ELLIPSIZE_END);
   name_.set_hexpand(true);
-  name_.set_tooltip_text(entry.tooltip.empty() ? entry.name : entry.tooltip);
+  const std::string tip = row_tooltip_text(entry.tooltip.empty() ? entry.name : entry.tooltip);
+  name_.set_tooltip_text(utf8_text(tip));
+  set_tooltip_text(utf8_text(tip));
   if (entry.protected_app) {
     name_.set_sensitive(false);
   }
@@ -61,11 +75,14 @@ AppRow::AppRow(const AppEntry& entry) : entry_(entry) {
   mem_label_.set_xalign(1.0f);
   box_.pack_start(mem_label_, Gtk::PACK_SHRINK);
 
-  add_events(Gdk::BUTTON_PRESS_MASK);
+  add_events(Gdk::BUTTON_PRESS_MASK | Gdk::KEY_PRESS_MASK);
+  set_can_focus(true);
+  get_style_context()->add_class("app-row");
 
   menu_.attach_to_widget(*this);
   menu_attached_ = true;
   item_.signal_activate().connect(sigc::mem_fun(*this, &AppRow::on_force_close));
+  signal_popup_menu().connect(sigc::mem_fun(*this, &AppRow::on_popup_menu));
   menu_.signal_deactivate().connect([this]() { menu_posted_ = false; });
   menu_.signal_selection_done().connect([this]() { menu_posted_ = false; });
   menu_.append(item_);
@@ -88,9 +105,11 @@ void AppRow::update_entry(const AppEntry& entry) {
   const bool prot_changed = entry_.protected_app != entry.protected_app;
   const bool tip_changed = entry_.tooltip != entry.tooltip || name_changed;
   entry_ = entry;
-  if (name_changed) name_.set_text(entry_.name);
+  if (name_changed) name_.set_text(utf8_text(entry_.name));
   if (tip_changed) {
-    name_.set_tooltip_text(entry_.tooltip.empty() ? entry_.name : entry_.tooltip);
+    const std::string tip = row_tooltip_text(entry_.tooltip.empty() ? entry_.name : entry_.tooltip);
+    name_.set_tooltip_text(utf8_text(tip));
+    set_tooltip_text(utf8_text(tip));
   }
   if (mem_changed) mem_label_.set_text(memory_caption(entry_));
   if (prot_changed) name_.set_sensitive(!entry_.protected_app);
@@ -115,30 +134,45 @@ void AppRow::set_force_close_handler(ForceCloseHandler handler) {
 }
 
 void AppRow::rebuild_menu_item() {
-  if (can_force_close()) {
-    item_.set_label("Force Close " + entry_.name);
-    item_.set_sensitive(true);
+  item_.set_label(force_close_menu_label(entry_.name, can_force_close(), entry_.protect_reason));
+  item_.set_sensitive(can_force_close());
+}
+
+void AppRow::popup_force_close_menu(const GdkEvent* event) {
+  if (!menu_attached_) {
+    menu_.attach_to_widget(*this);
+    menu_attached_ = true;
+  }
+  rebuild_menu_item();
+  menu_.show_all();
+  menu_posted_ = true;
+  if (event && event->type == GDK_BUTTON_PRESS) {
+    menu_.popup_at_pointer(event);
   } else {
-    std::string reason = entry_.protect_reason;
-    if (reason.empty()) reason = "Protected";
-    item_.set_label(reason);
-    item_.set_sensitive(false);
+    menu_.popup_at_widget(this, Gdk::GRAVITY_SOUTH_WEST, Gdk::GRAVITY_NORTH_WEST, event);
   }
 }
 
 bool AppRow::on_button_press_event(GdkEventButton* event) {
   if (event->type == GDK_BUTTON_PRESS && event->button == 3) {
-    if (!menu_attached_) {
-      menu_.attach_to_widget(*this);
-      menu_attached_ = true;
-    }
-    rebuild_menu_item();
-    menu_.show_all();
-    menu_posted_ = true;
-    menu_.popup_at_pointer(reinterpret_cast<const GdkEvent*>(event));
+    grab_focus();
+    popup_force_close_menu(reinterpret_cast<const GdkEvent*>(event));
     return true;
   }
   return Gtk::EventBox::on_button_press_event(event);
+}
+
+bool AppRow::on_key_press_event(GdkEventKey* event) {
+  if (event && is_force_close_popup_key(event->keyval, event->state)) {
+    popup_force_close_menu(reinterpret_cast<const GdkEvent*>(event));
+    return true;
+  }
+  return Gtk::EventBox::on_key_press_event(event);
+}
+
+bool AppRow::on_popup_menu() {
+  popup_force_close_menu(nullptr);
+  return true;
 }
 
 void AppRow::on_force_close() {
