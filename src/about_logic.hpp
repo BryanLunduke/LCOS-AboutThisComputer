@@ -280,8 +280,13 @@ std::string row_tooltip_text(const std::string& title_or_name, bool can_close,
                              const std::string& distinguish);
 
 // GDK_KEY_Menu, the XF86 menu key beside the keypad (GDK_KEY_MenuKB), and
-// Shift+F10. Plain F10 is not a Force Close key.
+// Shift+F10. Plain F10 is not a Force Close key. Return is not one of
+// these; it is the row's default action (is_row_activate_key).
 bool is_force_close_popup_key(unsigned keyval, unsigned state);
+
+// Return, keypad Enter, and ISO Enter run the focused row's default action
+// (the Force Close menu). Control and Alt chords are not that action.
+bool is_row_activate_key(unsigned keyval, unsigned state);
 
 // What to do with the result of pidfd_open. ESRCH means the process is gone.
 // ENOSYS and every other errno (EMFILE, ENOMEM, EPERM, EINVAL) use kill()

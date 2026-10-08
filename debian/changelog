@@ -1,3 +1,22 @@
+lunduke-about (0.9-7) unstable; urgency=medium
+
+  * CPU core and thread counts, and each extra GPU name, wrap inside the
+    stats column. A 36-character ellipsis no longer hides them. A long OS
+    name still ellipsizes so the window stays 520px wide.
+  * A loopback TCP display (localhost, 127.0.0.1, tcp/, [::1]) names the X
+    server from the listening port in /proc/net/tcp and tcp6. A zero
+    SO_PEERCRED pid is not "Unknown GPU". A root server whose fd directory
+    is unreadable is named from the port owner's uid and comm.
+  * The application list scrollbar uses the classic blue thumb. The theme
+    outside this window is unchanged.
+  * Enter activates the focused row's Force Close menu. The tooltip names
+    Shift+F10.
+  * Naming a display gives up when its socket accepts and never speaks, so
+    a wedged X server cannot hang the window or the tests.
+  * Meson project version remains 0.9.
+
+ -- Phil <phil@brushpad.local>  Thu, 08 Oct 2026 16:40:00 +0000
+
 lunduke-about (0.9-6) unstable; urgency=medium
 
   * Name the X server from SO_PEERCRED on the live connection, including a

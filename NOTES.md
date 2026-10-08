@@ -1,5 +1,12 @@
 # lunduke-about NOTES
 
+## v0.9-7
+
+- Debian revision only (0.9-6 → 0.9-7). Meson project version stays **0.9**.
+- CPU counts and a second GPU name wrap in the stats column instead of ending at the 36-character ellipsis.
+- Loopback TCP displays are named from `/proc/net/tcp` and `tcp6`. A wedged X socket cannot hang the probe.
+- The list scrollbar is the classic blue thumb. Enter opens Force Close; the tooltip names Shift+F10.
+
 ## v0.9-2
 
 - Debian revision only (0.9-1 → 0.9-2). Meson project version stays **0.9**.

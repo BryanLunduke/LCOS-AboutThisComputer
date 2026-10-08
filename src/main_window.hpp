@@ -153,7 +153,12 @@ private:
   double anchor_fallback_ = 0.0;
 };
 
-// Ellipsize a stats label and keep the full string in the tooltip.
+// Ellipsize a one-line stats label and keep the full string in the tooltip.
 void set_info_label(Gtk::Label& label, const std::string& text);
+
+// Wrap a CPU or GPU line inside a capped column. A core count or a second
+// adapter stays on screen; the label does not ellipsize. The window stays
+// 520px wide because the column width is capped in characters.
+void set_wrapping_info_label(Gtk::Label& label, const std::string& text);
 
 }  // namespace lundukeabout

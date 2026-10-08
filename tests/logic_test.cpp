@@ -6,8 +6,10 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <chrono>
 #include <climits>
 #include <csignal>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
@@ -16,8 +18,13 @@
 #include <sstream>
 #include <string>
 #include <dirent.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <poll.h>
 #include <sys/select.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/un.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -88,6 +95,90 @@ bool parse_amount(const std::string& text, ParsedAmount& out) {
   out.fraction = fraction;
   out.scaled = (whole * 10 + frac) * (neg ? -1 : 1);
   return true;
+}
+
+long elapsed_ms(std::chrono::steady_clock::time_point start) {
+  return std::chrono::duration_cast<std::chrono::milliseconds>(
+             std::chrono::steady_clock::now() - start)
+      .count();
+}
+
+bool cmdline_names_display(pid_t pid, int display) {
+  std::ifstream in("/proc/" + std::to_string(pid) + "/cmdline", std::ios::binary);
+  if (!in) return false;
+  const std::string data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  const std::string needle = ":" + std::to_string(display);
+  std::string token;
+  bool saw_xvfb = false;
+  bool saw_display = false;
+  auto flush = [&]() {
+    if (token == "Xvfb" || token == "sudo") saw_xvfb = true;
+    if (token.size() >= needle.size() &&
+        token.compare(token.size() - needle.size(), needle.size(), needle) == 0) {
+      saw_display = true;
+    }
+    token.clear();
+  };
+  for (char c : data) {
+    if (c == '\0') flush();
+    else token.push_back(c);
+  }
+  flush();
+  return saw_xvfb && saw_display;
+}
+
+void sudo_kill_display(int display) {
+  if (display < 0) return;
+  DIR* proc = opendir("/proc");
+  if (!proc) return;
+  std::vector<pid_t> victims;
+  while (dirent* de = readdir(proc)) {
+    if (!std::isdigit(static_cast<unsigned char>(de->d_name[0]))) continue;
+    char* end = nullptr;
+    const unsigned long pid_ul = std::strtoul(de->d_name, &end, 10);
+    if (!end || *end != '\0' || pid_ul == 0) continue;
+    const pid_t pid = static_cast<pid_t>(pid_ul);
+    if (pid == getpid()) continue;
+    if (cmdline_names_display(pid, display)) victims.push_back(pid);
+  }
+  closedir(proc);
+  for (pid_t pid : victims) {
+    const pid_t killer = fork();
+    if (killer == 0) {
+      const std::string text = std::to_string(pid);
+      execlp("sudo", "sudo", "-n", "kill", "-TERM", text.c_str(), static_cast<char*>(nullptr));
+      _exit(127);
+    }
+    if (killer > 0) waitpid(killer, nullptr, 0);
+  }
+}
+
+bool tcp_port_accepts(int port) {
+  const int fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+  if (fd < 0) return false;
+  sockaddr_in addr{};
+  addr.sin_family = AF_INET;
+  addr.sin_port = htons(static_cast<uint16_t>(port));
+  if (inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr) != 1) {
+    close(fd);
+    return false;
+  }
+  const int flags = fcntl(fd, F_GETFL, 0);
+  if (flags >= 0) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+  const int rc = connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
+  bool ok = rc == 0;
+  if (!ok && errno == EINPROGRESS) {
+    pollfd pfd{};
+    pfd.fd = fd;
+    pfd.events = POLLOUT;
+    if (poll(&pfd, 1, 100) > 0) {
+      int err = 0;
+      socklen_t len = sizeof(err);
+      ok = getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len) == 0 && err == 0;
+    }
+  }
+  close(fd);
+  return ok;
 }
 
 }  // namespace
@@ -806,12 +897,22 @@ int main() {
     CHECK(is_force_close_popup_key(0xffc7u, 1u));
     CHECK(is_force_close_popup_key(0xffc7u, 0) == false);
     CHECK(is_force_close_popup_key(0xff0du, 0) == false);
+    CHECK(is_row_activate_key(0xff0du, 0));
+    CHECK(is_row_activate_key(0xff8du, 0));
+    CHECK(is_row_activate_key(0xfe34u, 0));
+    CHECK(is_row_activate_key(0xff0du, 1u));
+    CHECK(is_row_activate_key(0xff0du, 4u) == false);
+    CHECK(is_row_activate_key(0xff0du, 8u) == false);
+    CHECK(is_row_activate_key(0xffc7u, 1u) == false);
     const std::string tip = row_tooltip_text("Document", true, "", "");
     CHECK(tip.find("Document") != std::string::npos);
-    CHECK(tip.find("Right-click or press the Menu key to Force Close") != std::string::npos);
+    CHECK(tip.find("Right-click or press the Menu key or Shift+F10 to Force Close") !=
+          std::string::npos);
+    CHECK(tip.find("Shift+F10") != std::string::npos);
     const std::string shared = row_tooltip_text("Document", true, "", "pid 32");
     CHECK(shared.find("pid 32") != std::string::npos);
-    CHECK(shared.find("Right-click or press the Menu key to Force Close") != std::string::npos);
+    CHECK(shared.find("Right-click or press the Menu key or Shift+F10 to Force Close") !=
+          std::string::npos);
     const std::string blocked = row_tooltip_text("GhostWin", false, "No process ID", "pid 9");
     CHECK(blocked == "No process ID");
     CHECK(blocked.find("Force Close") == std::string::npos);
@@ -1100,12 +1201,20 @@ int main() {
         }
         XCloseDisplay(dpy);
       }
+      // Do not walk a run of displays with XOpenDisplay. A stale server
+      // that accepts and never speaks used to hang this loop. Only a
+      // display with no unix socket is probed, and that probe is timed.
       bool saw_other = false;
-      for (int extra = xvfb_display + 1; extra < xvfb_display + 30; ++extra) {
-        if (server_comm_owning_display(":" + std::to_string(extra)).empty()) {
-          saw_other = true;
-          break;
-        }
+      for (int extra = xvfb_display + 1; extra < xvfb_display + 8 && !saw_other; ++extra) {
+        const std::string path = "/tmp/.X11-unix/X" + std::to_string(extra);
+        if (access(path.c_str(), F_OK) == 0) continue;
+        const auto t0 = std::chrono::steady_clock::now();
+        const std::string other = server_comm_owning_display(":" + std::to_string(extra));
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now() - t0)
+                            .count();
+        CHECK(ms < 2000);
+        if (other.empty()) saw_other = true;
       }
       CHECK(saw_other);
       if (const char* cur = std::getenv("DISPLAY")) {
@@ -1437,6 +1546,345 @@ int main() {
     std::istringstream blank_block(
         "processor\t: 0\nmodel name\t:\n\nprocessor\t: 1\nmodel name\t: Kept\ncore id\t: 0\n\n");
     CHECK(cpu_model_from_cpuinfo(blank_block) == "Kept (1 core, 1 thread)");
+  }
+
+  // Loopback TCP: the listening port in /proc/net/tcp names the server.
+  // A readable fd inode wins. A root server whose fd directory cannot be
+  // read is named from the socket uid and comm.
+  {
+    std::istringstream tcp(
+        "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  "
+        "timeout inode\n"
+        "   0: 0100007F:178F 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        "
+        "0 4242 1 0000000000000000 100 0 0 10 0\n"
+        "   1: 00000000:0050 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        "
+        "0 9999 1 0000000000000000 100 0 0 10 0\n"
+        "   2: 0100007F:178F 0100007F:1234 01 00000000:00000000 00:00000000 00000000  1000        "
+        "0 7777 1 0000000000000000 100 0 0 10 0\n");
+    const auto rows = parse_proc_net_tcp(tcp);
+    const TcpListenEntry* listen = nullptr;
+    bool saw_established = false;
+    bool saw_http = false;
+    for (const auto& row : rows) {
+      if (row.port == 80 && row.listening) saw_http = true;
+      if (row.port == 6031 && row.listening) listen = &row;
+      if (row.port == 6031 && !row.listening) saw_established = true;
+    }
+    CHECK(listen != nullptr);
+    CHECK(saw_http);
+    CHECK(saw_established);
+    if (listen) {
+      CHECK(listen->inode == 4242);
+      CHECK(listen->uid == 0);
+    }
+    std::istringstream tcp6(
+        "  sl  local_address                         remote_address                        st "
+        "tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n"
+        "   0: 00000000000000000000000001000000:178F 00000000000000000000000000000000:0000 0A "
+        "00000000:00000000 00:00000000 00000000  1000        0 5151 1 0000000000000000 100 0 0 10 0\n");
+    const auto v6 = parse_proc_net_tcp(tcp6);
+    CHECK(v6.size() == 1);
+    if (!v6.empty()) {
+      CHECK(v6[0].listening);
+      CHECK(v6[0].port == 6031);
+      CHECK(v6[0].inode == 5151);
+      CHECK(v6[0].uid == 1000);
+    }
+
+    TcpListenEntry owner;
+    owner.port = 6031;
+    owner.inode = 4242;
+    owner.uid = 0;
+    owner.listening = true;
+    ProcFdRecord holder;
+    holder.pid = 50;
+    holder.uid = 1000;
+    holder.comm = "Xvfb";
+    holder.fd_dir_readable = true;
+    holder.socket_inodes = {4242};
+    ProcFdRecord other;
+    other.pid = 1;
+    other.uid = 0;
+    other.comm = "systemd";
+    other.fd_dir_readable = false;
+    CHECK(comm_owning_tcp_listeners({owner}, {holder, other}) == "Xvfb");
+
+    ProcFdRecord root_xvfb;
+    root_xvfb.pid = 100;
+    root_xvfb.uid = 0;
+    root_xvfb.comm = "Xvfb";
+    root_xvfb.fd_dir_readable = false;
+    root_xvfb.cmdline_matches_display = true;
+    ProcFdRecord root_sudo = root_xvfb;
+    root_sudo.pid = 90;
+    root_sudo.comm = "sudo";
+    ProcFdRecord root_init = other;
+    CHECK(comm_owning_tcp_listeners({owner}, {root_sudo, root_xvfb, root_init}) == "Xvfb");
+
+    ProcFdRecord plain_xvfb = root_xvfb;
+    plain_xvfb.cmdline_matches_display = false;
+    ProcFdRecord plain_xorg = plain_xvfb;
+    plain_xorg.pid = 110;
+    plain_xorg.comm = "Xorg";
+    CHECK(comm_owning_tcp_listeners({owner}, {plain_xvfb, plain_xorg, root_init}).empty());
+
+    ProcFdRecord marked = plain_xvfb;
+    marked.pid = 120;
+    marked.cmdline_matches_display = true;
+    CHECK(comm_owning_tcp_listeners({owner}, {plain_xorg, marked, root_sudo}) == "Xvfb");
+
+    CHECK(comm_owning_tcp_listeners({owner}, {plain_xvfb, root_init}) == "Xvfb");
+    owner.listening = false;
+    CHECK(comm_owning_tcp_listeners({owner}, {holder}).empty());
+  }
+
+  // A socket that accepts and never speaks must not hang the display probe.
+  {
+    int display = -1;
+    for (int n = 120; n < 150; ++n) {
+      const std::string path = "/tmp/.X11-unix/X" + std::to_string(n);
+      if (access(path.c_str(), F_OK) == 0) continue;
+      const int probe = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+      if (probe < 0) continue;
+      sockaddr_in addr{};
+      addr.sin_family = AF_INET;
+      addr.sin_port = htons(static_cast<uint16_t>(6000 + n));
+      inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+      const int bound = bind(probe, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
+      close(probe);
+      if (bound != 0) continue;
+      display = n;
+      break;
+    }
+    CHECK(display >= 0);
+    if (display >= 0) {
+      const std::string path = "/tmp/.X11-unix/X" + std::to_string(display);
+      const int unix_fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+      sockaddr_un un{};
+      un.sun_family = AF_UNIX;
+      CHECK(path.size() + 1 < sizeof(un.sun_path));
+      std::memcpy(un.sun_path, path.c_str(), path.size() + 1);
+      const bool unix_ok = unix_fd >= 0 &&
+                           bind(unix_fd, reinterpret_cast<sockaddr*>(&un), sizeof(un)) == 0 &&
+                           listen(unix_fd, 4) == 0;
+      CHECK(unix_ok);
+      if (unix_ok) {
+        const auto t0 = std::chrono::steady_clock::now();
+        const std::string comm = server_comm_owning_display(":" + std::to_string(display));
+        const long ms = elapsed_ms(t0);
+        if (ms >= 2000) std::cerr << "silent unix display took " << ms << "ms\n";
+        CHECK(ms < 2000);
+        (void)comm;
+      }
+      if (unix_fd >= 0) close(unix_fd);
+      unlink(path.c_str());
+
+      const int tcp_fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+      sockaddr_in addr{};
+      addr.sin_family = AF_INET;
+      addr.sin_port = htons(static_cast<uint16_t>(6000 + display));
+      inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+      const bool tcp_ok = tcp_fd >= 0 &&
+                          bind(tcp_fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0 &&
+                          listen(tcp_fd, 4) == 0;
+      CHECK(tcp_ok);
+      if (tcp_ok) {
+        const auto t0 = std::chrono::steady_clock::now();
+        const std::string comm =
+            server_comm_owning_display("127.0.0.1:" + std::to_string(display));
+        const long ms = elapsed_ms(t0);
+        if (ms >= 2000) std::cerr << "silent tcp display took " << ms << "ms\n";
+        CHECK(ms < 2000);
+        (void)comm;
+      }
+      if (tcp_fd >= 0) close(tcp_fd);
+    }
+  }
+
+  // Live Xvfb listening on TCP only. SO_PEERCRED does not name it.
+  {
+    int pipefd[2] = {-1, -1};
+    pid_t child = -1;
+    int xvfb_display = -1;
+    bool started = false;
+    if (pipe(pipefd) == 0) {
+      child = fork();
+      if (child == 0) {
+        close(pipefd[0]);
+        if (dup2(pipefd[1], 3) < 0) _exit(127);
+        if (pipefd[1] != 3) close(pipefd[1]);
+        const int devnull = open("/dev/null", O_RDWR);
+        if (devnull >= 0) {
+          dup2(devnull, STDOUT_FILENO);
+          dup2(devnull, STDERR_FILENO);
+          if (devnull > 2 && devnull != 3) close(devnull);
+        }
+        execlp("Xvfb", "Xvfb", "-displayfd", "3", "-nolisten", "unix", "-listen", "tcp", "-ac",
+               "-screen", "0", "640x480x8", static_cast<char*>(nullptr));
+        _exit(127);
+      }
+      close(pipefd[1]);
+      if (child > 0) {
+        std::string acc;
+        while (acc.find('\n') == std::string::npos) {
+          fd_set rfds;
+          FD_ZERO(&rfds);
+          FD_SET(pipefd[0], &rfds);
+          timeval tv{};
+          tv.tv_sec = 3;
+          const int sel = select(pipefd[0] + 1, &rfds, nullptr, nullptr, &tv);
+          if (sel <= 0) break;
+          char buf[64];
+          const ssize_t n = read(pipefd[0], buf, sizeof(buf));
+          if (n <= 0) break;
+          acc.append(buf, buf + n);
+        }
+        if (!acc.empty()) {
+          try {
+            xvfb_display = std::stoi(acc);
+            started = xvfb_display >= 0;
+          } catch (...) {
+            started = false;
+          }
+        }
+      }
+    }
+    if (pipefd[0] >= 0) close(pipefd[0]);
+    if (started) {
+      bool up = false;
+      for (int i = 0; i < 40 && !up; ++i) {
+        up = tcp_port_accepts(6000 + xvfb_display);
+        if (!up) usleep(50000);
+      }
+      started = up;
+    }
+    auto stop = [&]() {
+      if (child > 0) {
+        kill(child, SIGTERM);
+        waitpid(child, nullptr, 0);
+        child = -1;
+      }
+    };
+    if (!started) {
+      stop();
+      std::cout << "SKIP live TCP Xvfb (did not start)\n";
+    } else {
+      const std::string n = std::to_string(xvfb_display);
+      const std::string specs[] = {
+          "127.0.0.1:" + n,
+          "localhost:" + n,
+          "[::1]:" + n,
+          "tcp/127.0.0.1:" + n,
+          "tcp/[::1]:" + n,
+          "tcp/localhost:" + n,
+      };
+      for (const std::string& spec : specs) {
+        std::string comm;
+        for (int i = 0; i < 20 && comm != "Xvfb"; ++i) {
+          comm = server_comm_owning_display(spec);
+          if (comm == "Xvfb") break;
+          usleep(50000);
+        }
+        CHECK(comm == "Xvfb");
+        CHECK(virtual_display_label_for_server(comm) == "Virtual framebuffer (Xvfb)");
+      }
+      const char* opens[] = {"127.0.0.1:", "localhost:", "[::1]:"};
+      for (const char* prefix : opens) {
+        const std::string spec = std::string(prefix) + n;
+        Display* dpy = nullptr;
+        for (int i = 0; i < 20 && !dpy; ++i) {
+          dpy = XOpenDisplay(spec.c_str());
+          if (!dpy) usleep(50000);
+        }
+        CHECK(dpy != nullptr);
+        if (!dpy) continue;
+        const int fd = XConnectionNumber(dpy);
+        const XPeerCred peer = x_peer_cred_from_fd(fd);
+        CHECK(peer.have_pid == false);
+        CHECK(peer.supported == false);
+        CHECK(gpu_label_for_x_connection(fd, spec) == "Virtual framebuffer (Xvfb)");
+        CHECK(gpu_label_for_x_connection(fd, spec) != "Unknown GPU");
+        XCloseDisplay(dpy);
+      }
+      stop();
+    }
+  }
+
+  // Root-owned TCP Xvfb: /proc/<pid>/fd is unreadable, the port uid and comm are not.
+  {
+    int display = -1;
+    for (int n = 150; n < 180; ++n) {
+      const std::string path = "/tmp/.X11-unix/X" + std::to_string(n);
+      if (access(path.c_str(), F_OK) == 0) continue;
+      const int probe = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+      if (probe < 0) continue;
+      sockaddr_in addr{};
+      addr.sin_family = AF_INET;
+      addr.sin_port = htons(static_cast<uint16_t>(6000 + n));
+      inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+      const int bound = bind(probe, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
+      close(probe);
+      if (bound != 0) continue;
+      display = n;
+      break;
+    }
+    CHECK(display >= 0);
+    pid_t child = -1;
+    if (display >= 0) {
+      child = fork();
+      if (child == 0) {
+        const int devnull = open("/dev/null", O_RDWR);
+        if (devnull >= 0) {
+          dup2(devnull, STDOUT_FILENO);
+          dup2(devnull, STDERR_FILENO);
+          if (devnull > 2) close(devnull);
+        }
+        const std::string spec = ":" + std::to_string(display);
+        execlp("sudo", "sudo", "-n", "Xvfb", spec.c_str(), "-screen", "0", "640x480x8",
+               "-nolisten", "unix", "-listen", "tcp", "-ac", static_cast<char*>(nullptr));
+        _exit(127);
+      }
+    }
+    bool started = false;
+    if (child > 0 && display >= 0) {
+      for (int i = 0; i < 40; ++i) {
+        if (tcp_port_accepts(6000 + display)) {
+          started = true;
+          break;
+        }
+        usleep(50000);
+      }
+    }
+    auto stop = [&]() {
+      if (display >= 0) sudo_kill_display(display);
+      if (child > 0) {
+        kill(child, SIGTERM);
+        waitpid(child, nullptr, 0);
+        child = -1;
+      }
+    };
+    if (!started) {
+      stop();
+      std::cout << "SKIP root TCP Xvfb (could not start)\n";
+    } else {
+      const std::string spec = "127.0.0.1:" + std::to_string(display);
+      Display* dpy = nullptr;
+      for (int i = 0; i < 20 && !dpy; ++i) {
+        dpy = XOpenDisplay(spec.c_str());
+        if (!dpy) usleep(50000);
+      }
+      CHECK(dpy != nullptr);
+      if (dpy) {
+        const XPeerCred peer = x_peer_cred_from_fd(XConnectionNumber(dpy));
+        XCloseDisplay(dpy);
+        CHECK(peer.have_pid == false);
+        CHECK(gpu_label_for_x_connection(-1, spec) == "Virtual framebuffer (Xvfb)");
+        CHECK(server_comm_owning_display(spec) == "Xvfb");
+        CHECK(server_comm_owning_display("tcp/127.0.0.1:" + std::to_string(display)) == "Xvfb");
+        CHECK(server_comm_owning_display("[::1]:" + std::to_string(display)) == "Xvfb");
+      }
+      stop();
+    }
   }
 
   if (g_failures != 0) {

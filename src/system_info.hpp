@@ -119,11 +119,13 @@ bool x_socket_path_matches_display(const std::string& path, int display);
 std::string server_comm_for_display(int display, const std::vector<XListenSocket>& sockets,
                                    const std::vector<ProcessSocket>& processes);
 // Credentials of the process at the far end of a connected socket.
-// supported is false when SO_PEERCRED does not apply (TCP, or not a socket).
-// comm is /proc/<pid>/comm, then the comm field of /proc/<pid>/stat.
-// /proc/<pid>/fd is not consulted: that directory is not readable for a
-// root-owned server, while comm is. comm is empty when neither file can
-// be read (hidepid); have_pid is still set.
+// supported is false when SO_PEERCRED does not name a peer: the option is
+// missing, the fd is not a socket, or the call succeeds with pid <= 0
+// (a TCP connection does that). comm is /proc/<pid>/comm, then the comm
+// field of /proc/<pid>/stat. /proc/<pid>/fd is not consulted: that
+// directory is not readable for a root-owned server, while comm is.
+// comm is empty when neither file can be read (hidepid); have_pid is still
+// set when the pid itself was reported.
 struct XPeerCred {
   bool supported = false;
   bool have_pid = false;
@@ -137,17 +139,51 @@ XPeerCred x_peer_cred_from_fd(int fd);
 // open /proc/<pid>/fd.
 std::string comm_of_pid(pid_t pid);
 
+// One row of /proc/net/tcp or /proc/net/tcp6. listening is TCP_LISTEN (0x0A).
+struct TcpListenEntry {
+  unsigned port = 0;
+  unsigned long inode = 0;
+  uid_t uid = static_cast<uid_t>(-1);
+  bool listening = false;
+};
+
+std::vector<TcpListenEntry> parse_proc_net_tcp(std::istream& in);
+
+// A process considered while mapping a listening socket inode to a comm.
+// fd_dir_readable is false when /proc/<pid>/fd could not be opened (a
+// root server). cmdline_matches_display is set when that process's
+// command line names the display being resolved.
+struct ProcFdRecord {
+  pid_t pid = 0;
+  uid_t uid = static_cast<uid_t>(-1);
+  std::string comm;
+  bool fd_dir_readable = false;
+  bool cmdline_matches_display = false;
+  std::vector<unsigned long> socket_inodes;
+};
+
+// comm of the process that owns one of the listening sockets. A readable
+// /proc/<pid>/fd inode match wins. Otherwise the socket uid selects
+// processes whose fd directory could not be read, and their comm (a
+// display server, preferring one whose command line names the display)
+// identifies the listener. Empty when nothing matches.
+std::string comm_owning_tcp_listeners(const std::vector<TcpListenEntry>& listeners,
+                                     const std::vector<ProcFdRecord>& procs);
+
 // /proc comm of the server that owns this DISPLAY spec. A local unix spec
-// is identified with SO_PEERCRED on an X connection (XConnectionNumber),
-// not by scanning the process list. Local TCP falls back to that scan.
-// Empty when the spec is remote, not a display, or the comm cannot be read.
+// is identified with SO_PEERCRED on our own connection to that socket.
+// A loopback TCP spec (localhost, 127.0.0.1, tcp/, [::1]), and a unix
+// connection whose peer pid is 0, is identified from the listening TCP
+// port 6000+N in /proc/net/tcp and tcp6. The probe gives up if the socket
+// accepts and never speaks X, and XOpenDisplay is not used. Empty when the
+// spec is remote, not a display, or the comm cannot be read.
 std::string server_comm_owning_display(const std::string& display_spec);
 
 // GPU label for the X server on connection_fd (the fd from XConnectionNumber).
 // A peer pid from SO_PEERCRED wins over display_spec, so a --display that
-// disagrees with the spec cannot name a different server. When the fd is
-// not a unix socket, local TCP uses the proc fallback and a remote spec is
-// "Remote display" rather than a false "Unknown GPU".
+// disagrees with the spec cannot name a different server. A zero peer pid
+// (TCP) is not "Unknown GPU": the listening port is resolved as above. A
+// remote spec is "Remote display".
 std::string gpu_label_for_x_connection(int connection_fd, const std::string& display_spec);
 
 // Label for that one server. "Virtual framebuffer (Xvfb)" only when `comm`

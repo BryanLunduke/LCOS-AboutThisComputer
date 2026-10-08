@@ -754,7 +754,7 @@ std::string row_tooltip_text(const std::string& title_or_name, bool can_close,
     if (!body.empty()) body += "\n";
     body += distinguish;
   }
-  const char* hint = "Right-click or press the Menu key to Force Close";
+  const char* hint = "Right-click or press the Menu key or Shift+F10 to Force Close";
   if (body.empty()) return hint;
   return body + "\n" + hint;
 }
@@ -767,6 +767,16 @@ bool is_force_close_popup_key(unsigned keyval, unsigned state) {
   if (keyval == kMenu || keyval == kMenuKB) return true;
   if ((state & kShift) != 0 && keyval == kF10) return true;
   return false;
+}
+
+bool is_row_activate_key(unsigned keyval, unsigned state) {
+  constexpr unsigned kControl = 4u;
+  constexpr unsigned kMod1 = 8u;
+  if ((state & (kControl | kMod1)) != 0) return false;
+  constexpr unsigned kReturn = 0xff0du;
+  constexpr unsigned kKPEnter = 0xff8du;
+  constexpr unsigned kISOEnter = 0xfe34u;
+  return keyval == kReturn || keyval == kKPEnter || keyval == kISOEnter;
 }
 
 PidfdOpenAction pidfd_open_action(int pidfd, int err) {
