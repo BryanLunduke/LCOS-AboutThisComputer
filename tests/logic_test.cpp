@@ -1887,6 +1887,44 @@ int main() {
     }
   }
 
+  // Supporters: Steve Rockefeller is inserted at index 1. The previous
+  // second entry, Steven P., moves to index 2. Jack Beckman is last.
+  // The list had 4 names and grows by exactly 2. The file and the
+  // built-in fallback used when that file is missing stay the same list.
+  {
+    const std::vector<std::string> expected = {
+        "\"Fuzzy\"",
+        "Steve Rockefeller",
+        "Steven P.",
+        "Chris Hammond",
+        "Mike Beasley",
+        "Jack Beckman",
+    };
+    constexpr std::size_t kPreviousCount = 4;
+    std::string path;
+    if (const char* env = std::getenv("LUNDUKE_SUPPORTERS_TXT")) path = env;
+    if (path.empty()) {
+      const std::string here = __FILE__;
+      const auto slash = here.find_last_of("/\\");
+      const std::string dir = slash == std::string::npos ? std::string(".") : here.substr(0, slash);
+      path = dir + "/../data/supporters.txt";
+    }
+    std::ifstream supporters_file(path);
+    CHECK(static_cast<bool>(supporters_file));
+    const std::vector<std::string> entries = parse_supporter_entries(supporters_file);
+    CHECK(entries.size() == kPreviousCount + 2);
+    CHECK(builtin_supporter_entries().size() == kPreviousCount + 2);
+    if (entries.size() >= 3) {
+      CHECK(entries[1] == "Steve Rockefeller");
+      CHECK(entries[2] == "Steven P.");
+      CHECK(entries.back() == "Jack Beckman");
+    }
+    CHECK(entries == expected);
+    CHECK(builtin_supporter_entries() == expected);
+    CHECK(join_supporter_entries(builtin_supporter_entries()) ==
+          "\"Fuzzy\", Steve Rockefeller, Steven P., Chris Hammond, Mike Beasley, Jack Beckman");
+  }
+
   if (g_failures != 0) {
     std::cerr << g_failures << " failure(s)\n";
     return 1;

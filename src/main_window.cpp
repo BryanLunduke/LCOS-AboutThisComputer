@@ -365,6 +365,13 @@ int SupportersNamesView::line_height() const {
   return single_line_height_;
 }
 
+int SupportersNamesView::wrapped_content_height() const {
+  const int width = get_allocated_width();
+  if (width < 40) return 0;
+  ensure_layout(width);
+  return layout_pixel_height_;
+}
+
 void SupportersNamesView::sync_scroll_policy() {
   // Visible fit: keep every name on screen and do not arm a frame callback.
   if (!names_overflow(get_allocated_height())) {
@@ -782,29 +789,13 @@ void MainWindow::load_supporters() {
   // "Fuzzy", Steven P., Chris Hammond — including whatever punctuation the
   // line already has (Fuzzy stays quoted).
   std::string path = find_data_file("supporters.txt");
-  std::ifstream in(path);
-  std::string names;
-  if (in) {
-    std::string line;
-    while (std::getline(in, line)) {
-      if (!line.empty() && line.back() == '\r') line.pop_back();
-      if (!line.empty() && line[0] == '#') continue;
-      bool blank = true;
-      for (char c : line) {
-        if (c != ' ' && c != '\t') {
-          blank = false;
-          break;
-        }
-      }
-      if (blank) continue;
-      if (!names.empty()) names += ", ";
-      names += line;
-    }
+  std::vector<std::string> entries;
+  if (!path.empty()) {
+    std::ifstream in(path);
+    if (in) entries = parse_supporter_entries(in);
   }
-  if (names.empty()) {
-    names = "\"Fuzzy\", Steven P., Chris Hammond, Mike Beasley";
-  }
-  supporters_names_view_.set_text(names);
+  if (entries.empty()) entries = builtin_supporter_entries();
+  supporters_names_view_.set_text(join_supporter_entries(entries));
 }
 
 void MainWindow::update_ram_bar() {

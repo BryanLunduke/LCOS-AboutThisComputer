@@ -45,7 +45,14 @@ about_logic_test = executable(
   include_directories: lunduke_about_inc,
   dependencies: [x11_dep],
 )
-test('about-logic', about_logic_test, timeout: 60)
+test(
+  'about-logic',
+  about_logic_test,
+  timeout: 60,
+  env: [
+    'LUNDUKE_SUPPORTERS_TXT=' + join_paths(meson.project_source_root(), 'data', 'supporters.txt'),
+  ],
+)
 
 about_ui_test = executable(
   'about-ui-test',

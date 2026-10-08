@@ -622,6 +622,75 @@ void test_window_layout() {
     CHECK(bottom <= window_h);
   }
 
+  // The two new names stay in order, and the wrapped block still fits in
+  // the header beside the logo (no crawl clip) inside the 520×360 window.
+  lundukeabout::SupportersNamesView* names = nullptr;
+  for (int i = 0; i < 50; ++i) {
+    names = nullptr;
+    walk(window, [&](Gtk::Widget& widget) {
+      if (auto* view = dynamic_cast<lundukeabout::SupportersNamesView*>(&widget)) names = view;
+    });
+    if (names && names->get_allocated_width() >= 40 && names->get_allocated_height() > 1 &&
+        names->wrapped_content_height() > 0) {
+      break;
+    }
+    g_usleep(20000);
+    drain();
+  }
+  CHECK(names != nullptr);
+  if (names) {
+    const std::string shown(names->text());
+    const std::vector<std::string> expected = {
+        "\"Fuzzy\"",
+        "Steve Rockefeller",
+        "Steven P.",
+        "Chris Hammond",
+        "Mike Beasley",
+        "Jack Beckman",
+    };
+    std::vector<std::string> shown_entries;
+    std::string current;
+    for (size_t i = 0; i < shown.size(); ++i) {
+      if (i + 1 < shown.size() && shown[i] == ',' && shown[i + 1] == ' ') {
+        shown_entries.push_back(current);
+        current.clear();
+        ++i;
+        continue;
+      }
+      current.push_back(shown[i]);
+    }
+    shown_entries.push_back(current);
+    constexpr std::size_t kPreviousCount = 4;
+    CHECK(shown_entries.size() == kPreviousCount + 2);
+    if (shown_entries.size() >= 3) {
+      CHECK(shown_entries[1] == "Steve Rockefeller");
+      CHECK(shown_entries[2] == "Steven P.");
+      CHECK(shown_entries.back() == "Jack Beckman");
+    }
+    CHECK(shown_entries == expected);
+    CHECK(shown ==
+          "\"Fuzzy\", Steve Rockefeller, Steven P., Chris Hammond, Mike Beasley, Jack Beckman");
+
+    const int content_h = names->wrapped_content_height();
+    const int view_h = names->get_allocated_height();
+    const int view_w = names->get_allocated_width();
+    if (content_h > view_h + 1) {
+      std::cerr << "supporters clip content=" << content_h << " alloc=" << view_h
+                << " width=" << view_w << "\n";
+    }
+    CHECK(view_w >= 40);
+    CHECK(content_h > 1);
+    CHECK(content_h <= view_h + 1);
+    int names_x = 0;
+    int names_y = 0;
+    const bool names_placed = names->translate_coordinates(window, 0, 0, names_x, names_y);
+    CHECK(names_placed);
+    CHECK(names_x >= 0);
+    CHECK(names_y >= 0);
+    CHECK(names_y + view_h <= window.get_allocated_height());
+    CHECK(names_x + view_w <= window.get_allocated_width());
+  }
+
   window.hide();
   drain();
 }

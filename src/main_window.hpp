@@ -28,6 +28,10 @@ public:
   void set_text(const Glib::ustring& text);
   void set_max_height(int height);
   int line_height() const;
+  const Glib::ustring& text() const { return text_; }
+  // Wrapped pixel height at the allocated width, or 0 while that width is
+  // still the minimum-size probe.
+  int wrapped_content_height() const;
 
 protected:
   Gtk::SizeRequestMode get_request_mode_vfunc() const override;
