@@ -5,6 +5,7 @@
 
 #include <glib.h>
 
+#include <cmath>
 #include <cstring>
 #include <unistd.h>
 
@@ -193,6 +194,33 @@ void AppRow::rebuild_menu_item() {
   item_.set_sensitive(closable);
 }
 
+void AppRow::reveal_row() {
+  Gtk::ScrolledWindow* scroll = nullptr;
+  for (Gtk::Widget* parent = get_parent(); parent; parent = parent->get_parent()) {
+    if (auto* candidate = dynamic_cast<Gtk::ScrolledWindow*>(parent)) {
+      scroll = candidate;
+      break;
+    }
+  }
+  if (!scroll) return;
+  auto adj = scroll->get_vadjustment();
+  if (!adj) return;
+  const int row_y = get_allocation().get_y();
+  const int row_h = std::max(1, get_allocation().get_height());
+  const double value = adj->get_value();
+  const double page = adj->get_page_size();
+  if (page <= 1.0) return;
+  double target = value;
+  if (static_cast<double>(row_y) < value) target = row_y;
+  else if (static_cast<double>(row_y + row_h) > value + page)
+    target = static_cast<double>(row_y + row_h) - page;
+  const double max_value = std::max(0.0, adj->get_upper() - page);
+  if (target < 0.0) target = 0.0;
+  if (target > max_value) target = max_value;
+  if (std::abs(target - value) < 1.0) return;
+  adj->set_value(target);
+}
+
 void AppRow::popup_force_close_menu(const GdkEvent* event) {
   if (!menu_attached_) {
     menu_.attach_to_widget(*this);
@@ -201,11 +229,24 @@ void AppRow::popup_force_close_menu(const GdkEvent* event) {
   rebuild_menu_item();
   menu_.show_all();
   menu_posted_ = true;
-  if (event && event->type == GDK_BUTTON_PRESS) {
-    menu_.popup_at_pointer(event);
-  } else {
-    menu_.popup_at_widget(this, Gdk::GRAVITY_SOUTH_WEST, Gdk::GRAVITY_NORTH_WEST, event);
+  // The row's allocation is relative to the list. popup_at_widget applies
+  // that allocation to this event box's own GdkWindow, so the row's y is
+  // added twice and the menu opens below the window. Anchor to the row
+  // window itself: its origin already includes the header and the scroll
+  // offset, and the rectangle is the row in that window's coordinates.
+  // Keyboard and pointer both use this rectangle, so the menu sits on the
+  // focused row rather than wherever the pointer happens to be.
+  reveal_row();
+  if (!get_realized()) realize();
+  auto window = get_window();
+  const int width = std::max(1, get_allocated_width());
+  const int height = std::max(1, get_allocated_height());
+  if (window) {
+    menu_.popup_at_rect(window, Gdk::Rectangle(0, 0, width, height), Gdk::GRAVITY_SOUTH_WEST,
+                        Gdk::GRAVITY_NORTH_WEST, event);
+    return;
   }
+  menu_.popup_at_widget(this, Gdk::GRAVITY_SOUTH_WEST, Gdk::GRAVITY_NORTH_WEST, event);
 }
 
 bool AppRow::on_draw(const Cairo::RefPtr<Cairo::Context>& cr) {

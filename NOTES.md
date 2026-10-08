@@ -1,5 +1,14 @@
 # lunduke-about NOTES
 
+## v0.9-10
+
+- Debian revision only (0.9-8 → 0.9-10; there is no 0.9-9). Meson project version stays **0.9**.
+- Keyboard and mouse Force Close menus anchor to the focused row.
+- Rows use the desktop Name, with a prettified class as the fallback.
+- RAM Free caption no longer sits on the blue fill.
+- Process refresh skips smaps_rollup except for row trees, and slows down when the window is unfocused.
+- Application and RAM Used headers change the sort.
+
 ## v0.9-8
 
 - Debian revision only (0.9-7 → 0.9-8). Meson project version stays **0.9**.

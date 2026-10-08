@@ -35,7 +35,25 @@ struct AppEntry {
   std::vector<ProcPin> kill_pins;
   // The LCOS System remainder. Always the last list row. Not an application.
   bool lcos_system = false;
+  // Themed icon from the desktop entry, used when the window has no
+  // _NET_WM_ICON.
+  std::string desktop_icon;
 };
+
+// Counts for one process scan. status_reads stays 0: ppid and rss come from
+// stat, and smaps_rollup is opened only for a row and its descendants.
+struct ProcScanStats {
+  int stat_reads = 0;
+  int status_reads = 0;
+  int smaps_reads = 0;
+  int cache_reuses = 0;
+  int pids_seen = 0;
+  int pids_skipped_uid = 0;
+  int rollup_targets = 0;
+};
+
+void reset_proc_scan_stats();
+ProcScanStats proc_scan_stats();
 
 // One refresh of the client list, performed in short slices so the GTK
 // thread can paint and handle input between X round trips.

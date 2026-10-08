@@ -1509,8 +1509,9 @@ SystemInfo gather_system_info(int x_connection_fd, const std::string& x_display_
   OsRelease fallback;
   bool allow_fallback = false;
   // A parsed /etc/os-release is the host. The recipe file is not compiled in.
-  // LUNDUKE_ABOUT_OS_RELEASE is a dev path used only when /etc did not parse.
+  // The alternate path exists only in test builds.
   if (!host.ok) {
+#if defined(LUNDUKE_ABOUT_TEST_HOOKS)
     if (const char* env = std::getenv("LUNDUKE_ABOUT_OS_RELEASE")) {
       if (env[0] != '\0') {
         std::ifstream in(env);
@@ -1520,6 +1521,7 @@ SystemInfo gather_system_info(int x_connection_fd, const std::string& x_display_
         }
       }
     }
+#endif
   }
   info.os_pretty = os_display_name(host, fallback, allow_fallback);
 

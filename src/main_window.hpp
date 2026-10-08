@@ -102,6 +102,9 @@ private:
   bool on_window_state(GdkEventWindowState* event);
   void start_refresh_timer();
   void stop_refresh_work();
+  void on_active_changed();
+  void update_sort_header();
+  void toggle_sort_column(AppSortColumn column);
   void schedule_refresh();
   bool on_probe_idle();
   void apply_app_snapshot(std::vector<AppEntry> apps, bool x11);
@@ -137,6 +140,8 @@ private:
   Gtk::Label cpu_label_;
   Gtk::Label gpu_label_;
   MemoryBar ram_bar_;
+  Gtk::Button sort_name_button_;
+  Gtk::Button sort_ram_button_;
   Gtk::ScrolledWindow list_scroll_;
   Gtk::Box list_box_{Gtk::ORIENTATION_VERTICAL, 0};
   std::vector<AppListItem> app_rows_;
