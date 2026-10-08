@@ -74,10 +74,16 @@ struct ProcSnapshot {
   bool ok = false;
   std::string comm;
   unsigned long long start_ticks = 0;
+  // Field 4. 0 when the line ended before it.
+  pid_t ppid = 0;
+  // Field 24, in pages. saw_rss is false when the line ended at starttime.
+  bool saw_rss = false;
+  long rss_pages = 0;
 };
 
 // /proc/<pid>/stat line. comm is between the first '(' and the last ')'.
-// starttime is field 22. ok is false when the line is short or not a number.
+// starttime is field 22. ppid is field 4 and rss is field 24 when present.
+// ok is false when the line is short or starttime is not a number.
 ProcSnapshot parse_proc_stat_line(const std::string& stat_line);
 
 // Refresh-time comm + starttime must both still match. A recycled pid has a
@@ -193,6 +199,43 @@ SessionRamSplit split_session_ram(long used_kb, const std::vector<SessionRamSamp
 enum class AppSortColumn { Name, Ram };
 enum class AppSortDirection { Ascending, Descending };
 
+// One installed (or fixture) desktop entry. `id` is the desktop-file id
+// ("org.lunduke.LundukePaint.desktop" or the same string without the suffix).
+struct DesktopAppRecord {
+  std::string id;
+  std::string name;
+  std::string startup_wm_class;
+  std::string icon;
+};
+
+// Parse the [Desktop Entry] group. Name wins over Name[locale]. The id is
+// the caller's desktop-file id; this function does not read the filename.
+DesktopAppRecord parse_desktop_entry(const std::string& text, const std::string& id);
+
+// "Lunduke-paint" / "lunduke_paint" -> "Lunduke Paint". Words that already
+// have a capital stay as they are; a lowercase word is capitalized.
+std::string prettify_class_name(const std::string& raw);
+
+// Row pid plus descendants that are not some other row. Cycles stop.
+// Order is not significant.
+std::vector<pid_t> row_tree_pids(
+    const std::unordered_set<pid_t>& row_pids,
+    const std::unordered_map<pid_t, std::vector<pid_t>>& children);
+
+// smaps_rollup is read only for a row-tree pid whose cached charge is stale.
+// Every other pid is stat-only (or skipped before that).
+enum class ProcChargeAction { SkipRollup, ReadRollup };
+
+ProcChargeAction proc_charge_action(bool in_row_tree, bool cached_charge_still_valid);
+
+// Hidden or iconified windows do no refresh work. A visible window that is
+// not the active toplevel waits longer than a focused one.
+enum class RefreshPace { Stopped, Slow, Live };
+
+RefreshPace refresh_pace(bool mapped, bool iconified, bool active);
+// 0 when stopped, 10000 when unfocused, 3000 when focused.
+int refresh_interval_ms(RefreshPace pace);
+
 // One listed row. lcos_system (or the name "LCOS System") is pinned last
 // for every column and direction, whatever rss_kb is.
 struct OrderedRow {
@@ -237,6 +280,14 @@ struct WindowFact {
   bool identity_ok = false;
 };
 
+// Desktop Name for this WM_CLASS, or a prettified class when nothing matches.
+// StartupWMClass is tried against res_class and res_name, then the desktop
+// id against res_name, res_class, and comm. icon_out receives the entry's
+// icon when a desktop entry wins; otherwise it is cleared.
+std::string display_name_for_window(const WindowFact& window,
+                                    const std::vector<DesktopAppRecord>& desktop_apps,
+                                    std::string* icon_out);
+
 // True only when /proc comm matches a protected binary. A WM_CLASS hit whose
 // comm is a different program does not protect that pid.
 bool window_marks_protected(const WindowFact& window, std::string& reason);
@@ -259,6 +310,9 @@ struct GroupedApp {
   std::string comm;
   unsigned long long start_ticks = 0;
   bool identity_ok = false;
+  // Icon name from the desktop entry that supplied `name`. Empty when the
+  // row fell back to a prettified class or a title.
+  std::string desktop_icon;
 };
 
 // One row per PID (or per XID when the window has no PID). The representative
@@ -269,7 +323,11 @@ struct GroupedApp {
 // classify_process() calls that process session plumbing. Session plumbing
 // is not listed; its anonymous memory stays in LCOS System.
 // Protection comes from /proc comm, not from a foreign WM_CLASS.
-std::vector<GroupedApp> group_windows(const std::vector<WindowFact>& windows);
+// desktop_apps supplies Name= / StartupWMClass= matches. An empty catalog
+// still prettifies the class ("Lunduke-paint" -> "Lunduke Paint").
+std::vector<GroupedApp> group_windows(
+    const std::vector<WindowFact>& windows,
+    const std::vector<DesktopAppRecord>& desktop_apps = {});
 
 // A refresh may destroy this row only when it left the snapshot, its menu
 // is not posted, and no Force Close dialog is nested.

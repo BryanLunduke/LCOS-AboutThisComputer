@@ -2,6 +2,10 @@
 #include "about_logic.hpp"
 #include "system_info.hpp"
 
+#ifndef LUNDUKE_ABOUT_FIXTURE_DIR
+#define LUNDUKE_ABOUT_FIXTURE_DIR ""
+#endif
+
 #include <X11/Xlib.h>
 
 #include <algorithm>
@@ -535,7 +539,24 @@ int main() {
     CHECK(parsed.ok);
     CHECK(parsed.comm == "firefox");
     CHECK(parsed.start_ticks == 100);
+    CHECK(parsed.ppid == 1);
+    CHECK(parsed.saw_rss);
+    CHECK(parsed.rss_pages == 0);
     CHECK(parse_proc_stat_line("nope").ok == false);
+    const std::string full =
+        "1 (my app) S 5 1 1 0 -1 0 1 0 0 0 2 3 0 0 20 0 1 0 900 100 40";
+    const ProcSnapshot rich = parse_proc_stat_line(full);
+    CHECK(rich.ok);
+    CHECK(rich.comm == "my app");
+    CHECK(rich.ppid == 5);
+    CHECK(rich.start_ticks == 900);
+    CHECK(rich.saw_rss);
+    CHECK(rich.rss_pages == 40);
+    const ProcSnapshot short_line = parse_proc_stat_line("9 (short) S 2 1 1 0 0 0 0 0 0 0 0 0 0 0 20 0 1 0 7");
+    CHECK(short_line.ok);
+    CHECK(short_line.start_ticks == 7);
+    CHECK(short_line.ppid == 2);
+    CHECK(short_line.saw_rss == false);
   }
 
   // Finding 7: skip-taskbar-only and dock-only still produce a row.
@@ -547,7 +568,7 @@ int main() {
     const auto grouped = group_windows({dock});
     CHECK(grouped.size() == 1);
     if (!grouped.empty()) {
-      CHECK(grouped[0].name == "xfce4-panel");
+      CHECK(grouped[0].name == "Xfce4 Panel");
       CHECK(grouped[0].protected_app);
       CHECK(grouped[0].protect_reason == "Desktop panel");
     }
@@ -966,7 +987,7 @@ int main() {
       const std::string painted1 = painted_row_name(same[1].name, same[1].distinguish);
       CHECK(painted0 == painted1);
       CHECK(painted0.find("pid") == std::string::npos);
-      CHECK(painted0.find("My_App") != std::string::npos);
+      CHECK(painted0.find("My App") != std::string::npos);
     }
     WindowFact only = fact(5, 34, true, WindowKind::Normal);
     only.res_class = "Only";
@@ -2131,6 +2152,145 @@ int main() {
     CHECK(builtin_supporter_entries() == expected);
     CHECK(join_supporter_entries(builtin_supporter_entries()) ==
           "\"Fuzzy\", Steve Rockefeller, Steven P., Chris Hammond, Mike Beasley, Jack Beckman");
+  }
+
+  // Round 7: desktop Name, prettified class, row-tree rollup, refresh pace.
+  {
+    CHECK(prettify_class_name("Lunduke-paint") == "Lunduke Paint");
+    CHECK(prettify_class_name("lunduke_paint") == "Lunduke Paint");
+    CHECK(prettify_class_name("Xfce4-terminal") == "Xfce4 Terminal");
+    CHECK(prettify_class_name("Brave-browser") == "Brave Browser");
+    CHECK(prettify_class_name("Firefox") == "Firefox");
+    CHECK(prettify_class_name("My_App") == "My App");
+
+    const std::string fixture_dir = LUNDUKE_ABOUT_FIXTURE_DIR;
+    CHECK(!fixture_dir.empty());
+    auto load = [&](const std::string& file) {
+      std::ifstream in(fixture_dir + "/" + file);
+      CHECK(static_cast<bool>(in));
+      std::stringstream buffer;
+      buffer << in.rdbuf();
+      const auto dot = file.rfind('.');
+      const std::string id = dot == std::string::npos ? file : file.substr(0, dot);
+      return parse_desktop_entry(buffer.str(), id);
+    };
+    const DesktopAppRecord paint = load("org.lunduke.LundukePaint.desktop");
+    const DesktopAppRecord edit = load("org.lunduke.LundukeEdit.desktop");
+    const DesktopAppRecord terminal = load("xfce4-terminal.desktop");
+    const DesktopAppRecord files = load("thunar.desktop");
+    const DesktopAppRecord message = load("xmessage.desktop");
+    CHECK(paint.name == "Lunduke Paint");
+    CHECK(paint.startup_wm_class == "lunduke-paint");
+    CHECK(paint.icon == "org.lunduke.LundukePaint");
+    CHECK(terminal.name == "Terminal");
+    CHECK(terminal.startup_wm_class == "Xfce4-terminal");
+    CHECK(message.name == "Message");
+    CHECK(message.startup_wm_class.empty());
+    const std::vector<DesktopAppRecord> catalog = {paint, edit, terminal, files, message};
+
+    WindowFact paint_win = fact(1, 10, true, WindowKind::Normal);
+    paint_win.res_class = "Lunduke-paint";
+    paint_win.res_name = "lunduke-paint";
+    paint_win.comm = "lunduke-paint";
+    std::string icon;
+    CHECK(display_name_for_window(paint_win, catalog, &icon) == "Lunduke Paint");
+    CHECK(icon == "org.lunduke.LundukePaint");
+
+    WindowFact term = fact(2, 11, true, WindowKind::Normal);
+    term.res_class = "Xfce4-terminal";
+    term.res_name = "xfce4-terminal";
+    term.comm = "xfce4-terminal";
+    icon.clear();
+    CHECK(display_name_for_window(term, catalog, &icon) == "Terminal");
+    CHECK(icon == "org.xfce.terminal");
+
+    WindowFact thunar = fact(3, 12, true, WindowKind::Normal);
+    thunar.res_class = "Thunar";
+    thunar.res_name = "thunar";
+    thunar.comm = "thunar";
+    CHECK(display_name_for_window(thunar, catalog, &icon) == "File Manager");
+
+    WindowFact xmsg = fact(4, 0, false, WindowKind::Normal);
+    xmsg.res_class = "Xmessage";
+    xmsg.res_name = "xmessage";
+    xmsg.comm.clear();
+    CHECK(display_name_for_window(xmsg, catalog, &icon) == "Message");
+
+    WindowFact brave = fact(5, 13, true, WindowKind::Normal);
+    brave.res_class = "Brave-browser";
+    brave.res_name = "brave-browser";
+    brave.comm = "brave";
+    icon = "stale";
+    CHECK(display_name_for_window(brave, catalog, &icon) == "Brave Browser");
+    CHECK(icon.empty());
+
+    // StartupWMClass wins over a desktop id that would name a different app.
+    DesktopAppRecord decoy = paint;
+    decoy.id = "lunduke-paint";
+    decoy.name = "Wrong Paint";
+    decoy.startup_wm_class.clear();
+    DesktopAppRecord real = paint;
+    const std::vector<DesktopAppRecord> prefer = {decoy, real};
+    CHECK(display_name_for_window(paint_win, prefer, nullptr) == "Lunduke Paint");
+
+    const auto grouped = group_windows({paint_win, term, brave}, catalog);
+    CHECK(grouped.size() == 3);
+    if (grouped.size() == 3) {
+      CHECK(grouped[0].name == "Lunduke Paint");
+      CHECK(grouped[0].class_name == "Lunduke-paint");
+      CHECK(grouped[0].desktop_icon == "org.lunduke.LundukePaint");
+      CHECK(grouped[1].name == "Terminal");
+      CHECK(grouped[1].class_name == "Xfce4-terminal");
+      CHECK(grouped[2].name == "Brave Browser");
+    }
+    const ForceClosePrompt prompt =
+        force_close_prompt("Lunduke Paint", "lunduke-paint", 10, "Lunduke-paint", true);
+    CHECK(prompt.primary == "Force Close \"Lunduke Paint\"?");
+    CHECK(prompt.secondary.find("quit Lunduke Paint immediately") != std::string::npos);
+    CHECK(prompt.secondary.find("command lunduke-paint") != std::string::npos);
+    CHECK(prompt.secondary.find("Lunduke-paint") == std::string::npos ||
+          prompt.secondary.find("Window class") != std::string::npos);
+  }
+
+  // Round 7: smaps_rollup is limited to the row tree, and only when the
+  // cached charge is stale. A hidden window stops; an unfocused one slows.
+  {
+    std::unordered_map<pid_t, std::vector<pid_t>> children;
+    std::unordered_set<pid_t> rows;
+    rows.insert(10);
+    rows.insert(20);
+    children[10] = {11, 12};
+    children[12] = {13, 20};
+    children[20] = {21};
+    children[1] = {10, 20, 30};
+    for (pid_t pid = 100; pid < 580; ++pid) children[1].push_back(pid);
+    const std::vector<pid_t> tree = row_tree_pids(rows, children);
+    std::unordered_set<pid_t> tree_set(tree.begin(), tree.end());
+    CHECK(tree_set.count(10));
+    CHECK(tree_set.count(11));
+    CHECK(tree_set.count(12));
+    CHECK(tree_set.count(13));
+    CHECK(tree_set.count(20));
+    CHECK(tree_set.count(21));
+    // 20 is another row, so it is not pulled in under 10, and neither is 21
+    // via that edge. 21 is included because 20 is itself a row.
+    CHECK(tree_set.count(30) == 0);
+    CHECK(tree_set.count(100) == 0);
+    CHECK(tree.size() < 30);
+    CHECK(tree.size() == 6);
+
+    CHECK(proc_charge_action(false, false) == ProcChargeAction::SkipRollup);
+    CHECK(proc_charge_action(false, true) == ProcChargeAction::SkipRollup);
+    CHECK(proc_charge_action(true, true) == ProcChargeAction::SkipRollup);
+    CHECK(proc_charge_action(true, false) == ProcChargeAction::ReadRollup);
+
+    CHECK(refresh_pace(false, false, true) == RefreshPace::Stopped);
+    CHECK(refresh_pace(true, true, true) == RefreshPace::Stopped);
+    CHECK(refresh_pace(true, false, false) == RefreshPace::Slow);
+    CHECK(refresh_pace(true, false, true) == RefreshPace::Live);
+    CHECK(refresh_interval_ms(RefreshPace::Stopped) == 0);
+    CHECK(refresh_interval_ms(RefreshPace::Slow) == 10000);
+    CHECK(refresh_interval_ms(RefreshPace::Live) == 3000);
   }
 
   if (g_failures != 0) {

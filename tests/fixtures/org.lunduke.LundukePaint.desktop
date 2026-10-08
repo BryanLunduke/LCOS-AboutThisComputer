@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Lunduke Paint
+GenericName=Paint
+Comment=A paint program
+StartupWMClass=lunduke-paint
+Exec=/usr/bin/true
+Icon=org.lunduke.LundukePaint
+Terminal=false
+Categories=Graphics;

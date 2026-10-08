@@ -130,6 +130,23 @@ scrollbar.platinum-scroll button {
   background-image: none;
   border-radius: 0;
 }
+.app-sort-header {
+  background-color: #e4e4ea;
+  border-bottom: 1px solid #b0b0b8;
+}
+.app-sort-header button {
+  background-image: none;
+  background-color: #e4e4ea;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  color: #1a1a1a;
+  font-weight: bold;
+  padding: 2px 8px;
+}
+.app-sort-header button:hover {
+  background-color: #d4d8e6;
+}
 )CSS";
 
 // Movie-credits crawl. Slow enough to read; integer pixels so the names stay
@@ -640,7 +657,35 @@ MainWindow::MainWindow() {
   list_box_.set_homogeneous(false);
 
   list_scroll_.add(list_box_);
-  frame->add(list_scroll_);
+
+  // Column headers stay put while the rows scroll. Clicking a header
+  // selects that column; clicking it again flips the direction. LCOS
+  // System stays the last row either way.
+  sort_name_button_.set_relief(Gtk::RELIEF_NONE);
+  sort_ram_button_.set_relief(Gtk::RELIEF_NONE);
+  sort_name_button_.set_can_focus(false);
+  sort_ram_button_.set_can_focus(false);
+  sort_name_button_.set_hexpand(true);
+  sort_name_button_.set_halign(Gtk::ALIGN_FILL);
+  sort_ram_button_.set_halign(Gtk::ALIGN_END);
+  sort_name_button_.get_style_context()->add_class("app-sort-name");
+  sort_ram_button_.get_style_context()->add_class("app-sort-ram");
+  if (auto* name_label = dynamic_cast<Gtk::Label*>(sort_name_button_.get_child())) {
+    name_label->set_xalign(0.0f);
+  }
+  sort_name_button_.signal_clicked().connect(
+      [this]() { toggle_sort_column(AppSortColumn::Name); });
+  sort_ram_button_.signal_clicked().connect(
+      [this]() { toggle_sort_column(AppSortColumn::Ram); });
+  update_sort_header();
+  auto* list_pane = Gtk::make_managed<Gtk::Box>(Gtk::ORIENTATION_VERTICAL, 0);
+  auto* sort_header = Gtk::make_managed<Gtk::Box>(Gtk::ORIENTATION_HORIZONTAL, 0);
+  sort_header->get_style_context()->add_class("app-sort-header");
+  sort_header->pack_start(sort_name_button_, Gtk::PACK_EXPAND_WIDGET);
+  sort_header->pack_start(sort_ram_button_, Gtk::PACK_SHRINK);
+  list_pane->pack_start(*sort_header, Gtk::PACK_SHRINK);
+  list_pane->pack_start(list_scroll_, Gtk::PACK_EXPAND_WIDGET);
+  frame->add(*list_pane);
   root_.pack_start(*frame, Gtk::PACK_EXPAND_WIDGET);
 
   // The box allocation is the one that places each row. The scrolled
@@ -651,6 +696,8 @@ MainWindow::MainWindow() {
   signal_unmap().connect(sigc::mem_fun(*this, &MainWindow::on_unmapped));
   signal_window_state_event().connect(
       sigc::mem_fun(*this, &MainWindow::on_window_state));
+  property_is_active().signal_changed().connect(
+      sigc::mem_fun(*this, &MainWindow::on_active_changed));
 
   show_all();
 }
@@ -902,10 +949,38 @@ void MainWindow::pin_system_row_last() {
   }
 }
 
+void MainWindow::update_sort_header() {
+  const char* mark = sort_direction_ == AppSortDirection::Ascending ? " \u25B2" : " \u25BC";
+  const std::string name_mark = sort_column_ == AppSortColumn::Name ? mark : "";
+  const std::string ram_mark = sort_column_ == AppSortColumn::Ram ? mark : "";
+  sort_name_button_.set_label("Application" + name_mark);
+  sort_ram_button_.set_label("RAM Used" + ram_mark);
+  if (auto* name_label = dynamic_cast<Gtk::Label*>(sort_name_button_.get_child())) {
+    name_label->set_xalign(0.0f);
+  }
+  if (auto* ram_label = dynamic_cast<Gtk::Label*>(sort_ram_button_.get_child())) {
+    ram_label->set_xalign(1.0f);
+  }
+}
+
+void MainWindow::toggle_sort_column(AppSortColumn column) {
+  AppSortDirection direction = sort_direction_;
+  if (sort_column_ == column) {
+    direction = direction == AppSortDirection::Ascending ? AppSortDirection::Descending
+                                                        : AppSortDirection::Ascending;
+  } else if (column == AppSortColumn::Name) {
+    direction = AppSortDirection::Ascending;
+  } else {
+    direction = AppSortDirection::Descending;
+  }
+  set_app_sort(column, direction);
+}
+
 void MainWindow::set_app_sort(AppSortColumn column, AppSortDirection direction) {
   sort_column_ = column;
   sort_direction_ = direction;
   sort_dirty_ = true;
+  update_sort_header();
   if (!app_rows_.empty()) reorder_app_rows();
 }
 
@@ -1340,9 +1415,24 @@ void MainWindow::on_force_close(const AppEntry& entry_ref) {
 }
 
 void MainWindow::start_refresh_timer() {
-  if (refresh_conn_.connected()) return;
+  if (refresh_frozen_ || !alive_ || iconified_ || !get_mapped()) return;
+  const int ms = refresh_interval_ms(refresh_pace(true, false, is_active()));
+  if (ms <= 0) return;
+  refresh_conn_.disconnect();
   refresh_conn_ = Glib::signal_timeout().connect(
-      sigc::mem_fun(*this, &MainWindow::on_refresh_tick), 3000);
+      sigc::mem_fun(*this, &MainWindow::on_refresh_tick), ms);
+}
+
+void MainWindow::on_active_changed() {
+  if (refresh_frozen_ || !alive_) return;
+  if (!get_mapped() || iconified_) return;
+  start_refresh_timer();
+  if (!is_active()) return;
+  if (last_snapshot_.time_since_epoch().count() != 0 &&
+      std::chrono::steady_clock::now() - last_snapshot_ < std::chrono::seconds(3)) {
+    return;
+  }
+  schedule_refresh();
 }
 
 void MainWindow::stop_refresh_work() {
@@ -1424,8 +1514,10 @@ bool MainWindow::on_refresh_tick() {
   if (refresh_frozen_) return false;
   if (!alive_ || iconified_ || !get_mapped()) return true;
   if (refresh_running_) return true;
+  const int ms = refresh_interval_ms(refresh_pace(true, iconified_, is_active()));
+  if (ms <= 0) return true;
   if (last_snapshot_.time_since_epoch().count() != 0 &&
-      std::chrono::steady_clock::now() - last_snapshot_ < std::chrono::seconds(3)) {
+      std::chrono::steady_clock::now() - last_snapshot_ < std::chrono::milliseconds(ms)) {
     return true;
   }
   schedule_refresh();

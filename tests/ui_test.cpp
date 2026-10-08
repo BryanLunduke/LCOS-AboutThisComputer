@@ -4,17 +4,26 @@
 // the last row inside the application list.
 #include "app_row.hpp"
 #include "main_window.hpp"
+#include "window_enum.hpp"
 
 #include <gdk/gdkkeysyms.h>
+#include <giomm/desktopappinfo.h>
 #include <gtk/gtk.h>
 #include <gtkmm/main.h>
 
+#include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <functional>
 #include <iostream>
 #include <string>
+#include <unistd.h>
 #include <vector>
 #include <gdk/gdk.h>
+
+#ifndef LUNDUKE_ABOUT_FIXTURE_DIR
+#define LUNDUKE_ABOUT_FIXTURE_DIR ""
+#endif
 
 namespace {
 
@@ -1159,6 +1168,376 @@ void test_scrollbar_thumb() {
   drain();
 }
 
+struct ScreenBox {
+  int x = 0;
+  int y = 0;
+  int w = 0;
+  int h = 0;
+};
+
+bool gdk_box(GdkWindow* window, ScreenBox& box) {
+  if (!window) return false;
+  gdk_window_get_origin(window, &box.x, &box.y);
+  box.w = gdk_window_get_width(window);
+  box.h = gdk_window_get_height(window);
+  return box.w > 0 && box.h > 0;
+}
+
+bool menu_screen_box(ScreenBox& box) {
+  GtkWidget* grabbed = gtk_grab_get_current();
+  for (int i = 0; grabbed && !GTK_IS_MENU(grabbed) && i < 8; ++i) {
+    grabbed = gtk_widget_get_parent(grabbed);
+  }
+  if (!grabbed) return false;
+  return gdk_box(gtk_widget_get_window(grabbed), box);
+}
+
+void assert_menu_on_row(lundukeabout::AppRow& row, const char* how) {
+  drain();
+  ScreenBox row_box;
+  ScreenBox menu;
+  auto window = row.get_window();
+  CHECK(static_cast<bool>(window));
+  if (!window) return;
+  CHECK(gdk_box(window->gobj(), row_box));
+  bool got = false;
+  for (int i = 0; i < 15 && !got; ++i) {
+    drain();
+    got = menu_screen_box(menu);
+    if (!got) g_usleep(20000);
+  }
+  if (!got) std::cerr << how << ": Force Close menu has no window\n";
+  CHECK(got);
+  if (!got) return;
+  const int limit = row_box.h + 16;
+  const bool below = std::abs(menu.y - (row_box.y + row_box.h)) <= limit;
+  const bool above = std::abs((menu.y + menu.h) - row_box.y) <= limit;
+  if ((!below && !above) || std::abs(menu.x - row_box.x) > 64) {
+    std::cerr << how << " menu " << menu.x << "," << menu.y << " " << menu.w << "x" << menu.h
+              << " row " << row_box.x << "," << row_box.y << " " << row_box.w << "x" << row_box.h
+              << "\n";
+  }
+  CHECK(below || above);
+  CHECK(std::abs(menu.x - row_box.x) <= 64);
+  row.dismiss_menu();
+  drain();
+}
+
+void test_menu_tracks_scrolled_row() {
+  Gtk::Window window;
+  window.set_default_size(440, 200);
+  Gtk::ScrolledWindow scroll;
+  scroll.set_policy(Gtk::POLICY_NEVER, Gtk::POLICY_ALWAYS);
+  scroll.set_size_request(420, 150);
+  Gtk::Box box(Gtk::ORIENTATION_VERTICAL, 0);
+  std::vector<lundukeabout::AppRow*> rows;
+  for (int i = 0; i < 12; ++i) {
+    auto* row = Gtk::manage(new lundukeabout::AppRow(closable_entry("Row " + std::to_string(i), 300 + i)));
+    box.pack_start(*row, Gtk::PACK_SHRINK);
+    rows.push_back(row);
+  }
+  scroll.add(box);
+  window.add(scroll);
+  window.show_all();
+  drain();
+  window.resize(440, 200);
+  drain();
+
+  auto run_at = [&](int index, int scroll_to, const char* how, const std::function<void(lundukeabout::AppRow&)>& send) {
+    auto adj = scroll.get_vadjustment();
+    CHECK(adj);
+    if (!adj) return;
+    const double page = adj->get_page_size();
+    const double upper = adj->get_upper();
+    double value = scroll_to;
+    const double max_value = std::max(0.0, upper - page);
+    if (value < 0) value = 0;
+    if (value > max_value) value = max_value;
+    adj->set_value(value);
+    drain();
+    rows[index]->grab_focus();
+    drain();
+    CHECK(rows[index]->is_focus());
+    send(*rows[index]);
+    assert_menu_on_row(*rows[index], how);
+  };
+
+  run_at(3, 0, "return-top", [](lundukeabout::AppRow& row) { send_key(row, GDK_KEY_Return, 0); });
+  run_at(3, 0, "menu-top", [](lundukeabout::AppRow& row) { send_key(row, GDK_KEY_Menu, 0); });
+  run_at(3, 0, "shift-f10-top",
+         [](lundukeabout::AppRow& row) { send_key(row, GDK_KEY_F10, GDK_SHIFT_MASK); });
+  run_at(3, 0, "button-top", [](lundukeabout::AppRow& row) { send_button(row, 3); });
+
+  const int scrolled_y = rows[8]->get_allocation().get_y();
+  CHECK(scrolled_y > rows[3]->get_allocation().get_height());
+  run_at(8, scrolled_y, "return-scrolled",
+         [](lundukeabout::AppRow& row) { send_key(row, GDK_KEY_Return, 0); });
+  run_at(8, scrolled_y, "menu-scrolled",
+         [](lundukeabout::AppRow& row) { send_key(row, GDK_KEY_Menu, 0); });
+  run_at(8, scrolled_y, "shift-f10-scrolled",
+         [](lundukeabout::AppRow& row) { send_key(row, GDK_KEY_F10, GDK_SHIFT_MASK); });
+  run_at(8, std::max(0, scrolled_y - 30), "button-scrolled",
+         [](lundukeabout::AppRow& row) { send_button(row, 3); });
+
+  window.hide();
+  drain();
+}
+
+bool boxes_overlap(double ax, double ay, double aw, double ah, double bx, double by, double bw,
+                   double bh) {
+  if (aw <= 0.5 || ah <= 0.5 || bw <= 0.5 || bh <= 0.5) return false;
+  return ax < bx + bw - 0.5 && ax + aw > bx + 0.5 && ay < by + bh - 0.5 && ay + ah > by + 0.5;
+}
+
+void test_ram_caption_geometry() {
+  const double widths[] = {220.0, 496.0};
+  const double fracs[] = {0.0, 0.05, 0.5, 0.9, 0.96, 0.987, 0.997, 1.0};
+  const double text_ws[] = {40.0, 90.0, 140.0, 220.0, 400.0};
+  const double text_hs[] = {11.0, 16.0, 28.0, 48.0};
+  for (double width : widths) {
+    for (double frac : fracs) {
+      for (double tw : text_ws) {
+        for (double th : text_hs) {
+          const bool show_free = frac < 0.999;
+          const auto layout = lundukeabout::layout_memory_captions(width, 22.0, frac, show_free, tw,
+                                                                   th, tw * 0.8, th);
+          if (layout.free.visible) {
+            const bool on_blue =
+                boxes_overlap(layout.free.x, layout.free.y, layout.free.w, layout.free.h,
+                              layout.bar_x, layout.bar_y, layout.blue_w, layout.bar_h);
+            if (on_blue) {
+              std::cerr << "free caption on blue fill frac=" << frac << " text=" << tw << "x" << th
+                        << " bar=" << width << "\n";
+            }
+            CHECK(!on_blue);
+          }
+          const double light_w = std::max(0.0, layout.bar_w - layout.blue_w);
+          if (layout.used.visible && light_w > 0.5) {
+            const bool on_light =
+                boxes_overlap(layout.used.x, layout.used.y, layout.used.w, layout.used.h,
+                              layout.bar_x + layout.blue_w, layout.bar_y, light_w, layout.bar_h);
+            if (on_light) {
+              std::cerr << "used caption on light fill frac=" << frac << " text=" << tw << "x" << th
+                        << " bar=" << width << "\n";
+            }
+            CHECK(!on_light);
+          }
+          if (layout.used.visible && layout.free.visible) {
+            CHECK(!boxes_overlap(layout.used.x, layout.used.y, layout.used.w, layout.used.h,
+                                 layout.free.x, layout.free.y, layout.free.w, layout.free.h));
+          }
+        }
+      }
+    }
+  }
+
+  lundukeabout::MemoryBar bar;
+  bar.set_memory(15500L * 1024L, 15600L * 1024L, "15.5 GB", "50 MB");
+  Gtk::Window host;
+  host.set_default_size(520, 80);
+  host.add(bar);
+  host.show_all();
+  drain();
+  host.resize(520, 80);
+  drain();
+  const auto laid = bar.layout_at(496, 22);
+  CHECK(laid.free.visible);
+  CHECK(!boxes_overlap(laid.free.x, laid.free.y, laid.free.w, laid.free.h, laid.bar_x, laid.bar_y,
+                       laid.blue_w, laid.bar_h));
+  CHECK(laid.free.below || laid.free.x >= laid.bar_x + laid.blue_w - 0.5);
+  host.hide();
+  drain();
+}
+
+void test_sort_headers_and_system_row() {
+  lundukeabout::MainWindow window;
+  drain();
+  window.resize(520, 360);
+  drain();
+  std::vector<lundukeabout::AppEntry> apps;
+  apps.push_back(named_app("Mango", 11, 50));
+  apps.push_back(named_app("Alpha", 10, 100));
+  apps.push_back(named_app("Zebra", 12, 10));
+  for (int i = 0; i < 8; ++i) {
+    apps.push_back(named_app("Extra " + std::to_string(i), 40 + i, 20 + i));
+  }
+  lundukeabout::AppEntry system;
+  system.name = "LCOS System";
+  system.tooltip = "LCOS System";
+  system.rss_kb = 5;
+  system.rss_known = true;
+  system.lcos_system = true;
+  system.protected_app = true;
+  system.protect_reason = "LCOS System";
+  window.replace_listed_apps(apps, system);
+  drain();
+
+  auto rows = rows_in_list(window);
+  CHECK(rows.size() == apps.size() + 1);
+  if (!rows.empty()) {
+    CHECK(rows.back()->entry().name == "LCOS System");
+    CHECK(rows.back()->entry().lcos_system);
+  }
+
+  Gtk::ScrolledWindow* scroll = nullptr;
+  walk(window, [&](Gtk::Widget& widget) {
+    if (scroll) return;
+    if (auto* candidate = dynamic_cast<Gtk::ScrolledWindow*>(&widget)) {
+      if (candidate->get_style_context()->has_class("platinum-scroll")) scroll = candidate;
+    }
+  });
+  CHECK(scroll != nullptr);
+  if (scroll && scroll->get_vadjustment() && !rows.empty()) {
+    scroll->get_vadjustment()->set_value(0);
+    drain();
+    const int last_y = rows.back()->get_allocation().get_y();
+    const double page = scroll->get_vadjustment()->get_page_size();
+    // With a full list the system row is below the fold at 520x360, which is
+    // the state in the round 7 screenshot. It is still the last child.
+    if (last_y > page) {
+      CHECK(rows.back()->get_allocation().get_y() + 1 > page);
+    }
+    CHECK(rows_in_list(window).back()->entry().name == "LCOS System");
+  }
+
+  Gtk::Button* name_button = nullptr;
+  Gtk::Button* ram_button = nullptr;
+  walk(window, [&](Gtk::Widget& widget) {
+    auto* button = dynamic_cast<Gtk::Button*>(&widget);
+    if (!button) return;
+    if (button->get_style_context()->has_class("app-sort-name")) name_button = button;
+    if (button->get_style_context()->has_class("app-sort-ram")) ram_button = button;
+  });
+  CHECK(name_button != nullptr);
+  CHECK(ram_button != nullptr);
+  if (!name_button || !ram_button) {
+    window.hide();
+    drain();
+    return;
+  }
+  CHECK(ram_button->get_label().find("RAM Used") != std::string::npos);
+  CHECK(ram_button->get_label().find("\u25BC") != std::string::npos);
+
+  name_button->clicked();
+  drain();
+  {
+    const auto names = row_names(rows_in_list(window));
+    CHECK(!names.empty());
+    if (!names.empty()) CHECK(names.back() == "LCOS System");
+    CHECK(name_button->get_label().find("\u25B2") != std::string::npos);
+    std::vector<std::string> apps_only = names;
+    if (!apps_only.empty()) apps_only.pop_back();
+    std::vector<std::string> sorted = apps_only;
+    std::sort(sorted.begin(), sorted.end());
+    CHECK(apps_only == sorted);
+  }
+  name_button->clicked();
+  drain();
+  {
+    const auto names = row_names(rows_in_list(window));
+    CHECK(!names.empty() && names.back() == "LCOS System");
+    CHECK(name_button->get_label().find("\u25BC") != std::string::npos);
+    if (names.size() >= 3) CHECK(names[0] >= names[1]);
+  }
+  ram_button->clicked();
+  drain();
+  {
+    const auto names = row_names(rows_in_list(window));
+    CHECK(!names.empty() && names.back() == "LCOS System");
+    CHECK(ram_button->get_label().find("\u25BC") != std::string::npos);
+    CHECK(names.front() == "Alpha");
+  }
+  ram_button->clicked();
+  drain();
+  {
+    const auto names = row_names(rows_in_list(window));
+    CHECK(names.back() == "LCOS System");
+    CHECK(ram_button->get_label().find("\u25B2") != std::string::npos);
+  }
+
+  window.hide();
+  drain();
+}
+
+void test_gio_desktop_names() {
+  const std::string dir = LUNDUKE_ABOUT_FIXTURE_DIR;
+  CHECK(!dir.empty());
+  auto paint = Gio::DesktopAppInfo::create_from_filename(dir + "/org.lunduke.LundukePaint.desktop");
+  CHECK(static_cast<bool>(paint));
+  if (!paint) return;
+  CHECK(std::string(paint->get_name()) == "Lunduke Paint");
+  CHECK(std::string(paint->get_startup_wm_class()) == "lunduke-paint");
+  lundukeabout::DesktopAppRecord rec;
+  rec.id = "org.lunduke.LundukePaint.desktop";
+  rec.name = paint->get_name();
+  rec.startup_wm_class = paint->get_startup_wm_class();
+  if (auto icon = paint->get_icon()) {
+    if (auto themed = Glib::RefPtr<Gio::ThemedIcon>::cast_dynamic(icon)) {
+      const auto names = themed->get_names();
+      for (const auto& name : names) {
+        rec.icon = name;
+        break;
+      }
+    }
+  }
+  lundukeabout::WindowFact window;
+  window.res_class = "Lunduke-paint";
+  window.res_name = "lunduke-paint";
+  window.comm = "lunduke-paint";
+  std::string icon;
+  CHECK(lundukeabout::display_name_for_window(window, {rec}, &icon) == "Lunduke Paint");
+
+  auto terminal = Gio::DesktopAppInfo::create_from_filename(dir + "/xfce4-terminal.desktop");
+  CHECK(static_cast<bool>(terminal));
+  if (!terminal) return;
+  CHECK(std::string(terminal->get_name()) == "Terminal");
+  CHECK(std::string(terminal->get_startup_wm_class()) == "Xfce4-terminal");
+  lundukeabout::DesktopAppRecord term;
+  term.id = "xfce4-terminal.desktop";
+  term.name = terminal->get_name();
+  term.startup_wm_class = terminal->get_startup_wm_class();
+  lundukeabout::WindowFact term_win;
+  term_win.res_class = "Xfce4-terminal";
+  term_win.res_name = "xfce4-terminal";
+  term_win.comm = "xfce4-terminal";
+  CHECK(lundukeabout::display_name_for_window(term_win, {term}, nullptr) == "Terminal");
+  const auto prompt =
+      lundukeabout::force_close_prompt("Terminal", "xfce4-terminal", 42, "Xfce4-terminal", true);
+  CHECK(prompt.primary == "Force Close \"Terminal\"?");
+  CHECK(prompt.secondary.find("quit Terminal immediately") != std::string::npos);
+  CHECK(prompt.secondary.find("command xfce4-terminal") != std::string::npos);
+}
+
+void test_proc_scan_cost() {
+  lundukeabout::reset_proc_scan_stats();
+  lundukeabout::AppListRefresh refresh(static_cast<pid_t>(::getpid()));
+  int guard = 0;
+  while (refresh.step()) {
+    if (++guard > 200000) break;
+  }
+  CHECK(guard < 200000);
+  const auto stats = lundukeabout::proc_scan_stats();
+  std::cout << "proc-scan pids=" << stats.pids_seen << " stat=" << stats.stat_reads
+            << " status=" << stats.status_reads << " smaps=" << stats.smaps_reads
+            << " reuse=" << stats.cache_reuses << " skip_uid=" << stats.pids_skipped_uid
+            << " rollup=" << stats.rollup_targets << "\n";
+  CHECK(stats.status_reads == 0);
+  CHECK(stats.pids_seen > 0);
+  CHECK(stats.smaps_reads <= stats.stat_reads);
+  if (stats.pids_seen >= 8) CHECK(stats.smaps_reads < stats.pids_seen);
+
+  lundukeabout::AppListRefresh again(static_cast<pid_t>(::getpid()));
+  guard = 0;
+  while (again.step()) {
+    if (++guard > 200000) break;
+  }
+  const auto second = lundukeabout::proc_scan_stats();
+  std::cout << "proc-scan-2 pids=" << second.pids_seen << " stat=" << second.stat_reads
+            << " status=" << second.status_reads << " smaps=" << second.smaps_reads
+            << " reuse=" << second.cache_reuses << " rollup=" << second.rollup_targets << "\n";
+  CHECK(second.status_reads == 0);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -1178,6 +1557,11 @@ int main(int argc, char** argv) {
   test_cpu_gpu_text_visible();
   test_return_activates_row();
   test_scrollbar_thumb();
+  test_menu_tracks_scrolled_row();
+  test_ram_caption_geometry();
+  test_sort_headers_and_system_row();
+  test_gio_desktop_names();
+  test_proc_scan_cost();
   if (g_failures != 0) {
     std::cerr << g_failures << " failure(s)\n";
     return 1;

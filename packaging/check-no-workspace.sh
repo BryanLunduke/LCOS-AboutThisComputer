@@ -17,17 +17,5 @@ if [ ! -f "$BIN" ]; then
   exit 1
 fi
 
-hits="$TMP/hits.txt"
-: > "$hits"
-if strings "$BIN" | grep -F '/workspace' >> "$hits"; then
-  :
-fi
-if grep -a -F -o '/workspace' "$BIN" >> "$hits"; then
-  :
-fi
-if [ -s "$hits" ]; then
-  echo "binary contains /workspace:" >&2
-  cat "$hits" >&2
-  exit 1
-fi
-echo "ok: $BIN has no /workspace string"
+ROOT="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
+sh "$ROOT/check-production-binary.sh" "$BIN"

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Terminal
+Comment=Terminal emulator
+StartupWMClass=Xfce4-terminal
+Exec=/usr/bin/true
+Icon=org.xfce.terminal
+Terminal=false

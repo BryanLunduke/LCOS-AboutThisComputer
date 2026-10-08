@@ -1,3 +1,23 @@
+lunduke-about (0.9-10) unstable; urgency=medium
+
+  * Force Close from Enter, the Menu key, Shift+F10, and the right mouse
+    button opens on the focused row. The menu is anchored to that row's
+    window, including when the list is scrolled.
+  * Application rows and the Force Close question use the desktop entry's
+    Name (StartupWMClass, then the desktop-file id). A class with no entry
+    is prettified. LCOS System stays the last row in the list.
+  * The RAM Free caption stays on the light end of the bar, or under the
+    bar, and is not drawn on the blue fill.
+  * The refresh reads smaps_rollup only for listed apps and their child
+    processes, reuses a charge that has not changed, and waits 10 seconds
+    between refreshes while the window is unfocused. A hidden window still
+    does not refresh.
+  * The list header sorts by application name or by RAM, ascending or
+    descending. LCOS System stays last.
+  * Meson project version remains 0.9.
+
+ -- Phil <phil@brushpad.local>  Thu, 08 Oct 2026 22:50:00 +0000
+
 lunduke-about (0.9-8) unstable; urgency=medium
 
   * LCOS System is a normal row inside the application list again. It stays

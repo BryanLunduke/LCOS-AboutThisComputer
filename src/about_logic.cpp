@@ -221,17 +221,6 @@ bool name_is_session_plumbing(const std::string& name) {
   return false;
 }
 
-std::string application_name(const WindowFact& w) {
-  // A Latin-1 class or title is not a name. Fall through to the command,
-  // then a valid title, then the pid. Pango must not be handed those bytes.
-  if (utf8_valid(w.res_class) && !w.res_class.empty()) return w.res_class;
-  if (utf8_valid(w.res_name) && !w.res_name.empty()) return w.res_name;
-  if (utf8_valid(w.comm) && !w.comm.empty()) return w.comm;
-  if (utf8_valid(w.title) && !w.title.empty()) return w.title;
-  if (w.has_pid && w.pid > 1) return "pid " + std::to_string(w.pid);
-  return {};
-}
-
 int representative_score(const WindowFact& w) {
   int score = 0;
   if (w.active) score += 100;
@@ -411,16 +400,33 @@ ProcSnapshot parse_proc_stat_line(const std::string& stat_line) {
   }
   id.comm = stat_line.substr(lparen + 1, rparen - lparen - 1);
   std::istringstream iss(stat_line.substr(rparen + 1));
+  std::vector<std::string> tokens;
   std::string tok;
-  for (int field = 3; field <= 22; ++field) {
-    if (!(iss >> tok)) return id;
-  }
+  while (iss >> tok) tokens.push_back(tok);
+  // Field 22 is the 20th token after comm (fields 3..22).
+  if (tokens.size() < 20) return id;
   try {
-    id.start_ticks = std::stoull(tok);
+    id.start_ticks = std::stoull(tokens[19]);
   } catch (...) {
     return id;
   }
   id.ok = true;
+  if (tokens.size() > 1) {
+    try {
+      id.ppid = static_cast<pid_t>(std::stol(tokens[1]));
+    } catch (...) {
+      id.ppid = 0;
+    }
+  }
+  if (tokens.size() > 21) {
+    try {
+      id.rss_pages = std::stol(tokens[21]);
+      id.saw_rss = true;
+    } catch (...) {
+      id.saw_rss = false;
+      id.rss_pages = 0;
+    }
+  }
   return id;
 }
 
@@ -683,7 +689,199 @@ std::string painted_row_name(const std::string& name, const std::string& disting
   return name;
 }
 
-std::vector<GroupedApp> group_windows(const std::vector<WindowFact>& windows) {
+namespace {
+
+std::string ascii_fold(const std::string& text) {
+  std::string out;
+  out.reserve(text.size());
+  for (unsigned char c : text) out.push_back(static_cast<char>(std::tolower(c)));
+  return out;
+}
+
+std::string trim_desktop_value(const std::string& text) {
+  size_t begin = 0;
+  while (begin < text.size() && (text[begin] == ' ' || text[begin] == '\t')) ++begin;
+  size_t end = text.size();
+  while (end > begin && (text[end - 1] == ' ' || text[end - 1] == '\t' || text[end - 1] == '\r')) {
+    --end;
+  }
+  return text.substr(begin, end - begin);
+}
+
+std::string desktop_id_stem(const std::string& id) {
+  std::string stem = id;
+  const auto slash = stem.find_last_of('/');
+  if (slash != std::string::npos) stem = stem.substr(slash + 1);
+  const std::string suffix = ".desktop";
+  if (stem.size() >= suffix.size() &&
+      stem.compare(stem.size() - suffix.size(), suffix.size(), suffix) == 0) {
+    stem.resize(stem.size() - suffix.size());
+  }
+  return stem;
+}
+
+bool desktop_id_matches(const std::string& id, const std::string& key) {
+  if (id.empty() || key.empty()) return false;
+  const std::string folded_key = ascii_fold(key);
+  if (ascii_fold(id) == folded_key) return true;
+  if (ascii_fold(id) == folded_key + ".desktop") return true;
+  return ascii_fold(desktop_id_stem(id)) == folded_key;
+}
+
+int desktop_match_score(const DesktopAppRecord& app, const std::string& res_name,
+                        const std::string& res_class, const std::string& comm) {
+  const std::string wm = app.startup_wm_class;
+  if (!wm.empty()) {
+    if (!res_class.empty() && wm == res_class) return 80;
+    if (!res_class.empty() && ascii_fold(wm) == ascii_fold(res_class)) return 70;
+    if (!res_name.empty() && wm == res_name) return 60;
+    if (!res_name.empty() && ascii_fold(wm) == ascii_fold(res_name)) return 50;
+  }
+  if (desktop_id_matches(app.id, res_name)) return 40;
+  if (desktop_id_matches(app.id, res_class)) return 30;
+  if (desktop_id_matches(app.id, comm)) return 20;
+  return 0;
+}
+
+}  // namespace
+
+DesktopAppRecord parse_desktop_entry(const std::string& text, const std::string& id) {
+  DesktopAppRecord rec;
+  rec.id = id;
+  bool in_entry = false;
+  bool seen_group = false;
+  std::string localized;
+  std::string line;
+  auto take = [&]() {
+    if (!line.empty() && line.back() == '\r') line.pop_back();
+    if (line.empty() || line[0] == '#') return;
+    if (line[0] == '[') {
+      const auto end = line.find(']');
+      const std::string group = end == std::string::npos ? std::string() : line.substr(1, end - 1);
+      in_entry = group == "Desktop Entry";
+      seen_group = true;
+      return;
+    }
+    if (seen_group && !in_entry) return;
+    const auto eq = line.find('=');
+    if (eq == std::string::npos) return;
+    const std::string key = trim_desktop_value(line.substr(0, eq));
+    const std::string value = trim_desktop_value(line.substr(eq + 1));
+    if (key == "Name" && rec.name.empty()) rec.name = value;
+    else if (localized.empty() && key.size() > 5 && key.compare(0, 5, "Name[") == 0) localized = value;
+    else if (key == "StartupWMClass" && rec.startup_wm_class.empty()) rec.startup_wm_class = value;
+    else if (key == "Icon" && rec.icon.empty()) rec.icon = value;
+  };
+  for (size_t i = 0; i <= text.size(); ++i) {
+    if (i == text.size() || text[i] == '\n') {
+      take();
+      line.clear();
+    } else {
+      line.push_back(text[i]);
+    }
+  }
+  if (rec.name.empty()) rec.name = localized;
+  return rec;
+}
+
+std::string prettify_class_name(const std::string& raw) {
+  std::string out;
+  out.reserve(raw.size());
+  bool cap = true;
+  bool pending_space = false;
+  for (unsigned char c : raw) {
+    if (c == '-' || c == '_' || c == '.') {
+      if (!out.empty()) pending_space = true;
+      cap = true;
+      continue;
+    }
+    if (pending_space) {
+      out.push_back(' ');
+      pending_space = false;
+    }
+    if (cap && c >= 'a' && c <= 'z') out.push_back(static_cast<char>(c - 'a' + 'A'));
+    else out.push_back(static_cast<char>(c));
+    cap = false;
+  }
+  return out;
+}
+
+std::string display_name_for_window(const WindowFact& window,
+                                    const std::vector<DesktopAppRecord>& desktop_apps,
+                                    std::string* icon_out) {
+  if (icon_out) icon_out->clear();
+  const std::string res_class =
+      (utf8_valid(window.res_class) && !window.res_class.empty()) ? window.res_class : std::string();
+  const std::string res_name =
+      (utf8_valid(window.res_name) && !window.res_name.empty()) ? window.res_name : std::string();
+  const std::string comm =
+      (utf8_valid(window.comm) && !window.comm.empty()) ? window.comm : std::string();
+
+  const DesktopAppRecord* best = nullptr;
+  int best_score = 0;
+  for (const auto& app : desktop_apps) {
+    if (!utf8_valid(app.name) || app.name.empty()) continue;
+    const int score = desktop_match_score(app, res_name, res_class, comm);
+    if (score > best_score) {
+      best = &app;
+      best_score = score;
+    }
+  }
+  if (best) {
+    if (icon_out && utf8_valid(best->icon)) *icon_out = best->icon;
+    return best->name;
+  }
+  if (!res_class.empty()) return prettify_class_name(res_class);
+  if (!res_name.empty()) return prettify_class_name(res_name);
+  if (!comm.empty()) return comm;
+  if (utf8_valid(window.title) && !window.title.empty()) return window.title;
+  if (window.has_pid && window.pid > 1) return "pid " + std::to_string(window.pid);
+  return {};
+}
+
+std::vector<pid_t> row_tree_pids(
+    const std::unordered_set<pid_t>& row_pids,
+    const std::unordered_map<pid_t, std::vector<pid_t>>& children) {
+  std::vector<pid_t> out;
+  std::unordered_set<pid_t> seen;
+  for (pid_t root : row_pids) {
+    std::vector<pid_t> stack;
+    stack.push_back(root);
+    while (!stack.empty()) {
+      const pid_t pid = stack.back();
+      stack.pop_back();
+      if (!seen.insert(pid).second) continue;
+      out.push_back(pid);
+      const auto kids = children.find(pid);
+      if (kids == children.end()) continue;
+      for (pid_t child : kids->second) {
+        if (child != root && row_pids.count(child) != 0) continue;
+        stack.push_back(child);
+      }
+    }
+  }
+  return out;
+}
+
+ProcChargeAction proc_charge_action(bool in_row_tree, bool cached_charge_still_valid) {
+  if (in_row_tree && !cached_charge_still_valid) return ProcChargeAction::ReadRollup;
+  return ProcChargeAction::SkipRollup;
+}
+
+RefreshPace refresh_pace(bool mapped, bool iconified, bool active) {
+  if (!mapped || iconified) return RefreshPace::Stopped;
+  if (!active) return RefreshPace::Slow;
+  return RefreshPace::Live;
+}
+
+int refresh_interval_ms(RefreshPace pace) {
+  if (pace == RefreshPace::Live) return 3000;
+  if (pace == RefreshPace::Slow) return 10000;
+  return 0;
+}
+
+std::vector<GroupedApp> group_windows(const std::vector<WindowFact>& windows,
+                                      const std::vector<DesktopAppRecord>& desktop_apps) {
   struct Acc {
     std::vector<const WindowFact*> all;
     std::vector<const WindowFact*> eligible;
@@ -728,7 +926,9 @@ std::vector<GroupedApp> group_windows(const std::vector<WindowFact>& windows) {
     g.xid = best->xid;
     g.has_pid = best->has_pid && best->pid > 1;
     g.pid = g.has_pid ? best->pid : 0;
-    g.name = application_name(*best);
+    std::string desktop_icon;
+    g.name = display_name_for_window(*best, desktop_apps, &desktop_icon);
+    g.desktop_icon = std::move(desktop_icon);
     if (g.name.empty()) continue;
     if (utf8_valid(best->res_class) && !best->res_class.empty()) g.class_name = best->res_class;
     if (utf8_valid(best->title) && !best->title.empty()) g.tooltip = best->title;

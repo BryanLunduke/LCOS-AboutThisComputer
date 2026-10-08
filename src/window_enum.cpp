@@ -8,6 +8,11 @@
 #include <X11/Xatom.h>
 #include <X11/Xutil.h>
 
+#include <giomm/appinfo.h>
+#include <giomm/desktopappinfo.h>
+#include <giomm/themedicon.h>
+#include <gtkmm/icontheme.h>
+
 #include <algorithm>
 #include <chrono>
 #include <climits>
@@ -22,6 +27,7 @@
 #include <cctype>
 #include <cerrno>
 #include <cstdlib>
+#include <sys/stat.h>
 
 namespace lundukeabout {
 namespace {
@@ -73,6 +79,105 @@ std::string read_fd_limited(int fd) {
   return data;
 }
 
+struct ProcCacheEntry {
+  std::string comm;
+  unsigned long long start_ticks = 0;
+  pid_t ppid = 0;
+  long rss_pages = -1;
+  long rss_kb = 0;
+  bool have_charge = false;
+};
+
+std::unordered_map<pid_t, ProcCacheEntry>& proc_cache() {
+  static std::unordered_map<pid_t, ProcCacheEntry> cache;
+  return cache;
+}
+
+ProcScanStats& proc_scan_stats_slot() {
+  static ProcScanStats stats;
+  return stats;
+}
+
+long rss_pages_to_kb(long pages) {
+  if (pages <= 0) return 0;
+  long page = ::sysconf(_SC_PAGESIZE);
+  if (page < 1024) page = 4096;
+  const long kb = pages * (page / 1024);
+  if (kb < 0) return LONG_MAX;
+  return kb;
+}
+
+std::vector<DesktopAppRecord>& desktop_catalog_slot() {
+  static std::vector<DesktopAppRecord> catalog;
+  return catalog;
+}
+
+std::chrono::steady_clock::time_point& desktop_catalog_loaded_at() {
+  static std::chrono::steady_clock::time_point at;
+  return at;
+}
+
+bool& desktop_catalog_loaded() {
+  static bool loaded = false;
+  return loaded;
+}
+
+std::vector<DesktopAppRecord> load_desktop_catalog() {
+  std::vector<DesktopAppRecord> out;
+  std::vector<Glib::RefPtr<Gio::AppInfo>> apps;
+  try {
+    apps = Gio::AppInfo::get_all();
+  } catch (const Glib::Error&) {
+    return out;
+  } catch (...) {
+    return out;
+  }
+  out.reserve(apps.size());
+  for (const auto& app : apps) {
+    if (!app) continue;
+    auto desktop = Glib::RefPtr<Gio::DesktopAppInfo>::cast_dynamic(app);
+    if (!desktop) continue;
+    DesktopAppRecord rec;
+    try {
+      rec.id = desktop->get_id();
+      rec.name = desktop->get_name();
+      rec.startup_wm_class = desktop->get_startup_wm_class();
+      if (auto icon = desktop->get_icon()) {
+        if (auto themed = Glib::RefPtr<Gio::ThemedIcon>::cast_dynamic(icon)) {
+          const auto names = themed->get_names();
+          for (const auto& name : names) {
+            rec.icon = static_cast<std::string>(name);
+            break;
+          }
+        } else {
+          rec.icon = icon->to_string();
+        }
+      }
+    } catch (const Glib::Error&) {
+      continue;
+    } catch (...) {
+      continue;
+    }
+    if (!utf8_valid(rec.name) || rec.name.empty()) continue;
+    if (!utf8_valid(rec.startup_wm_class)) rec.startup_wm_class.clear();
+    if (!utf8_valid(rec.id)) rec.id.clear();
+    if (!utf8_valid(rec.icon)) rec.icon.clear();
+    out.push_back(std::move(rec));
+  }
+  return out;
+}
+
+const std::vector<DesktopAppRecord>& desktop_catalog() {
+  const auto now = std::chrono::steady_clock::now();
+  if (!desktop_catalog_loaded() ||
+      now - desktop_catalog_loaded_at() > std::chrono::seconds(60)) {
+    desktop_catalog_slot() = load_desktop_catalog();
+    desktop_catalog_loaded() = true;
+    desktop_catalog_loaded_at() = now;
+  }
+  return desktop_catalog_slot();
+}
+
 std::unordered_map<unsigned long, IconCacheEntry>& icon_cache() {
   static std::unordered_map<unsigned long, IconCacheEntry> cache;
   return cache;
@@ -106,16 +211,6 @@ std::string read_proc_cmdline(pid_t pid) {
     data.append(buf, static_cast<size_t>(n));
   }
   return data;
-}
-
-long parse_status_number(const std::string& line) {
-  const auto pos = line.find_first_of("0123456789");
-  if (pos == std::string::npos) return 0;
-  try {
-    return std::stol(line.substr(pos));
-  } catch (...) {
-    return 0;
-  }
 }
 
 class X11ErrorTrap {
@@ -492,7 +587,7 @@ WindowKind get_window_kind(Display* dpy, Window w) {
 
 }  // namespace
 
-enum class Phase { Collect, Inspect, Procs, Assemble, Icons, Done };
+enum class Phase { Collect, Inspect, Procs, Rollup, Assemble, Icons, Done };
 
 struct AppListRefresh::Impl {
   explicit Impl(pid_t self) : self_(self) {}
@@ -505,7 +600,9 @@ struct AppListRefresh::Impl {
   void query_tree();
   void walk_clients(Window window, int depth);
   void inspect_one();
-  void read_one_proc();
+  void read_one_stat();
+  void prepare_rollup();
+  void read_one_rollup();
   void assemble();
   void load_one_icon();
 
@@ -526,7 +623,10 @@ struct AppListRefresh::Impl {
   std::vector<WindowFact> facts_;
   std::unordered_map<pid_t, ProcSnapshot> comms_;
   std::vector<pid_t> proc_ids_;
+  std::unordered_set<pid_t> stat_seen_;
+  std::vector<pid_t> rollup_ids_;
   bool procs_listed_ = false;
+  bool rollup_ready_ = false;
   std::unordered_map<pid_t, long> rss_kb_;
   std::unordered_map<pid_t, unsigned long long> start_ticks_;
   std::unordered_map<pid_t, std::vector<pid_t>> children_;
@@ -594,11 +694,18 @@ void AppListRefresh::Impl::pump() {
           }
           closedir(dir);
         }
+        index_ = 0;
       } else if (index_ >= proc_ids_.size()) {
-        phase_ = Phase::Assemble;
+        prepare_rollup();
+        phase_ = Phase::Rollup;
+        index_ = 0;
       } else {
-        read_one_proc();
+        read_one_stat();
       }
+      break;
+    case Phase::Rollup:
+      if (index_ >= rollup_ids_.size()) phase_ = Phase::Assemble;
+      else read_one_rollup();
       break;
     case Phase::Assemble:
       assemble();
@@ -737,66 +844,135 @@ void AppListRefresh::Impl::inspect_one() {
   facts_.push_back(std::move(fact));
 }
 
-void AppListRefresh::Impl::read_one_proc() {
+void AppListRefresh::Impl::read_one_stat() {
   const pid_t pid = proc_ids_[index_++];
+  proc_scan_stats_slot().pids_seen++;
   const int dirfd = open_proc_pid_dir(pid);
   if (dirfd < 0) {
+    proc_cache().erase(pid);
     rss_kb_.erase(pid);
     start_ticks_.erase(pid);
     return;
   }
-  const ProcSnapshot before = read_proc_snapshot_at(dirfd);
-  pid_t ppid = 0;
-  long rss = 0;
-  bool saw_status = false;
-  const int status_fd = ::openat(dirfd, "status", O_RDONLY | O_CLOEXEC);
-  if (status_fd >= 0) {
-    const std::string text = read_fd_limited(status_fd);
-    ::close(status_fd);
-    saw_status = true;
-    std::string line;
-    for (size_t i = 0; i <= text.size(); ++i) {
-      if (i == text.size() || text[i] == '\n') {
-        if (line.compare(0, 5, "PPid:") == 0) {
-          ppid = static_cast<pid_t>(parse_status_number(line));
-        } else if (line.compare(0, 8, "RssAnon:") == 0) {
-          rss = parse_status_number(line);
-        }
-        line.clear();
-      } else {
-        line.push_back(text[i]);
-      }
+  struct stat st;
+  if (::fstat(dirfd, &st) != 0) {
+    ::close(dirfd);
+    return;
+  }
+  // Other users cannot be force-closed. Their memory stays in LCOS System,
+  // so this scan does not open status or smaps_rollup for them.
+  if (st.st_uid != static_cast<uid_t>(::geteuid())) {
+    proc_scan_stats_slot().pids_skipped_uid++;
+    ::close(dirfd);
+    proc_cache().erase(pid);
+    return;
+  }
+  proc_scan_stats_slot().stat_reads++;
+  const ProcSnapshot snap = read_proc_snapshot_at(dirfd);
+  ::close(dirfd);
+  if (!snap.ok) {
+    proc_cache().erase(pid);
+    rss_kb_.erase(pid);
+    start_ticks_.erase(pid);
+    return;
+  }
+  stat_seen_.insert(pid);
+  auto& cache = proc_cache();
+  const auto it = cache.find(pid);
+  const bool same = it != cache.end() && it->second.comm == snap.comm &&
+                    it->second.start_ticks == snap.start_ticks;
+  const bool pages_known = snap.saw_rss;
+  const bool charge_valid = same && it->second.have_charge && pages_known &&
+                            it->second.rss_pages == snap.rss_pages;
+  ProcCacheEntry entry = same ? it->second : ProcCacheEntry{};
+  entry.comm = snap.comm;
+  entry.start_ticks = snap.start_ticks;
+  entry.ppid = snap.ppid;
+  if (pages_known) entry.rss_pages = snap.rss_pages;
+  entry.have_charge = charge_valid;
+  if (charge_valid) entry.rss_kb = it->second.rss_kb;
+  else entry.have_charge = false;
+  cache[pid] = entry;
+  start_ticks_[pid] = snap.start_ticks;
+  if (charge_valid) rss_kb_[pid] = entry.rss_kb;
+  if (entry.ppid > 0 && entry.ppid != pid) children_[entry.ppid].push_back(pid);
+}
+
+void AppListRefresh::Impl::prepare_rollup() {
+  auto& cache = proc_cache();
+  for (auto it = cache.begin(); it != cache.end();) {
+    if (!stat_seen_.count(it->first)) it = cache.erase(it);
+    else ++it;
+  }
+  std::unordered_set<pid_t> row_pids;
+  for (const auto& fact : facts_) {
+    if (fact.has_pid && fact.pid > 1) row_pids.insert(fact.pid);
+  }
+  const std::vector<pid_t> tree = row_tree_pids(row_pids, children_);
+  rollup_ids_.clear();
+  for (pid_t pid : tree) {
+    if (!stat_seen_.count(pid)) continue;
+    const auto it = cache.find(pid);
+    const bool valid = it != cache.end() && it->second.have_charge;
+    if (proc_charge_action(true, valid) == ProcChargeAction::ReadRollup) {
+      rollup_ids_.push_back(pid);
+    } else if (valid) {
+      proc_scan_stats_slot().cache_reuses++;
+      rss_kb_[pid] = it->second.rss_kb;
     }
   }
+  proc_scan_stats_slot().rollup_targets += static_cast<int>(rollup_ids_.size());
+  rollup_ready_ = true;
+}
+
+void AppListRefresh::Impl::read_one_rollup() {
+  const pid_t pid = rollup_ids_[index_++];
+  const int dirfd = open_proc_pid_dir(pid);
+  if (dirfd < 0) {
+    rss_kb_.erase(pid);
+    start_ticks_.erase(pid);
+    proc_cache().erase(pid);
+    return;
+  }
+  proc_scan_stats_slot().stat_reads++;
+  const ProcSnapshot before = read_proc_snapshot_at(dirfd);
   SmapsRollup rollup;
   bool have_rollup = false;
   const int rollup_fd = ::openat(dirfd, "smaps_rollup", O_RDONLY | O_CLOEXEC);
   if (rollup_fd >= 0) {
+    proc_scan_stats_slot().smaps_reads++;
     const std::string rollup_text = read_fd_limited(rollup_fd);
     ::close(rollup_fd);
     rollup = parse_smaps_rollup(rollup_text);
     have_rollup = true;
   }
+  proc_scan_stats_slot().stat_reads++;
   const ProcSnapshot after = read_proc_snapshot_at(dirfd);
   ::close(dirfd);
-  // The pid was recycled between the two stat reads, or status never opened.
-  // Drop it so the row shows an em dash instead of the new process's RAM.
-  if (!saw_status || !before.ok || !after.ok || before.comm != after.comm ||
+  // The pid was recycled while the rollup was read. Drop the charge so the
+  // row shows an em dash instead of the new process's RAM.
+  if (!before.ok || !after.ok || before.comm != after.comm ||
       before.start_ticks != after.start_ticks) {
     rss_kb_.erase(pid);
     start_ticks_.erase(pid);
+    proc_cache().erase(pid);
     return;
   }
-  // Pss_Anon counts a shared anonymous page once across this process and the
-  // helpers rolled into the same row. RssAnon repeats those pages.
-  rss = process_anon_charge_kb(have_rollup, rollup, rss);
-  rss_kb_[pid] = rss;
+  const long fallback = before.saw_rss ? rss_pages_to_kb(before.rss_pages) : 0;
+  const long charge = process_anon_charge_kb(have_rollup, rollup, fallback);
+  rss_kb_[pid] = charge;
   start_ticks_[pid] = before.start_ticks;
-  if (ppid > 0 && ppid != pid) children_[ppid].push_back(pid);
+  ProcCacheEntry& entry = proc_cache()[pid];
+  entry.comm = before.comm;
+  entry.start_ticks = before.start_ticks;
+  entry.ppid = before.ppid;
+  if (before.saw_rss) entry.rss_pages = before.rss_pages;
+  entry.rss_kb = charge;
+  entry.have_charge = true;
 }
 
 void AppListRefresh::Impl::assemble() {
-  const std::vector<GroupedApp> groups = group_windows(facts_);
+  const std::vector<GroupedApp> groups = group_windows(facts_, desktop_catalog());
   std::unordered_set<pid_t> row_pids;
   for (const auto& g : groups) {
     if (g.has_pid) row_pids.insert(g.pid);
@@ -843,6 +1019,7 @@ void AppListRefresh::Impl::assemble() {
     entry.comm = g.comm;
     entry.class_name = g.class_name;
     entry.distinguish = g.distinguish;
+    entry.desktop_icon = g.desktop_icon;
     entry.start_ticks = g.start_ticks;
     entry.identity_ok = g.identity_ok;
     if (g.has_pid && g.identity_ok) {
@@ -878,8 +1055,18 @@ void AppListRefresh::Impl::assemble() {
 
 void AppListRefresh::Impl::load_one_icon() {
   AppEntry& entry = entries_[icon_index_++];
-  if (entry.xid == 0) return;
-  entry.icon = cached_icon(dpy_, entry.xid, entry.pid);
+  if (entry.xid != 0) entry.icon = cached_icon(dpy_, entry.xid, entry.pid);
+  if (entry.icon || entry.desktop_icon.empty() || entry.desktop_icon.find('/') != std::string::npos) {
+    return;
+  }
+  try {
+    auto theme = Gtk::IconTheme::get_default();
+    if (theme && theme->has_icon(entry.desktop_icon)) {
+      entry.icon = theme->load_icon(entry.desktop_icon, 32, Gtk::ICON_LOOKUP_FORCE_SIZE);
+    }
+  } catch (const Glib::Error&) {
+  } catch (...) {
+  }
 }
 
 AppListRefresh::AppListRefresh(pid_t self_pid) : impl_(std::make_unique<Impl>(self_pid)) {}
@@ -891,6 +1078,10 @@ bool AppListRefresh::step() { return impl_->step(); }
 bool AppListRefresh::on_x11() const { return impl_->x11_; }
 
 const std::vector<AppEntry>& AppListRefresh::entries() const { return impl_->entries_; }
+
+void reset_proc_scan_stats() { proc_scan_stats_slot() = ProcScanStats{}; }
+
+ProcScanStats proc_scan_stats() { return proc_scan_stats_slot(); }
 
 bool window_xid_matches_pid(unsigned long xid, pid_t pid) {
   if (xid == 0 || pid <= 1) return false;

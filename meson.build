@@ -11,6 +11,14 @@ project(
   ],
 )
 
+# Keep the built binary free of the checkout path. Debug info and __FILE__
+# otherwise embed the source and build directories.
+add_project_arguments(
+  '-ffile-prefix-map=' + meson.project_source_root() + '=/src/',
+  '-ffile-prefix-map=' + meson.project_build_root() + '=/build/',
+  language: 'cpp',
+)
+
 gtkmm_dep = dependency('gtkmm-3.0', version: '>=3.24')
 gdk_x11_dep = dependency('gdk-x11-3.0')
 x11_dep = dependency('x11')
@@ -39,11 +47,15 @@ lunduke_about_sources = files(
   'src/memory_bar.cpp',
 )
 
+fixture_dir = join_paths(meson.project_source_root(), 'tests', 'fixtures')
+fixture_arg = '-DLUNDUKE_ABOUT_FIXTURE_DIR="' + fixture_dir + '"'
+
 about_logic_test = executable(
   'about-logic-test',
   files('tests/logic_test.cpp', 'src/about_logic.cpp', 'src/system_info.cpp'),
   include_directories: lunduke_about_inc,
   dependencies: [x11_dep],
+  cpp_args: [fixture_arg],
 )
 test(
   'about-logic',
@@ -67,6 +79,7 @@ about_ui_test = executable(
   ),
   dependencies: [gtkmm_dep, gdk_x11_dep, x11_dep, gdkpixbuf_dep],
   include_directories: lunduke_about_inc,
+  cpp_args: [fixture_arg],
 )
 xvfb_run = find_program('xvfb-run', required: true)
 test(
@@ -76,12 +89,20 @@ test(
   timeout: 120,
 )
 
-executable(
+about_exe = executable(
   'lunduke-about',
   lunduke_about_sources,
   dependencies: [gtkmm_dep, gdk_x11_dep, x11_dep, gdkpixbuf_dep],
   include_directories: lunduke_about_inc,
   install: true,
+)
+
+check_production_binary = find_program('packaging/check-production-binary.sh')
+test(
+  'about-production-binary',
+  check_production_binary,
+  args: [about_exe.full_path()],
+  timeout: 60,
 )
 
 install_data(

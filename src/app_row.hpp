@@ -42,6 +42,9 @@ private:
   void apply_entry_text();
   void rebuild_menu_item();
   void popup_force_close_menu(const GdkEvent* event);
+  // Scroll the parent viewport so this row is inside the page before the
+  // menu is anchored to it.
+  void reveal_row();
   void redraw_focus_row();
   static bool same_pixbuf(const Glib::RefPtr<Gdk::Pixbuf>& a,
                           const Glib::RefPtr<Gdk::Pixbuf>& b);
