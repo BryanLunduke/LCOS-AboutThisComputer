@@ -1,3 +1,22 @@
+lunduke-about (0.9-5) unstable; urgency=medium
+
+  * Left click focuses the row under the pointer, and Menu, Shift+F10, and
+    right-click all Force Close that same row. Tab moves to the next row
+    even when the window is not the active toplevel. A key delivered to
+    another row does not open its menu.
+  * With no display PCI device and no DRM card, the GPU line names the X
+    server that owns DISPLAY. An Xvfb on another display is not that server.
+  * Rows that share a name keep the pid or window id in a column that does
+    not ellipsize, and the tooltip includes it.
+  * Protected rows and rows with no process do not offer Force Close. The
+    menu item stays insensitive and the tooltip is the reason.
+  * about-ui no longer requires a focused toplevel, so it passes under
+    xvfb-run with no window manager. The package build runs that test
+    headless when DISPLAY is unset.
+  * Meson project version remains 0.9.
+
+ -- LCOS <lcos@lunduke.com>  Thu, 08 Oct 2026 13:10:00 +0000
+
 lunduke-about (0.9-4) unstable; urgency=medium
 
   * Force Close falls back to kill() when pidfd_open fails for a reason

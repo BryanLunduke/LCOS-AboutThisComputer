@@ -187,6 +187,10 @@ struct GroupedApp {
   // Valid UTF-8 WM_CLASS class, before any disambiguating suffix. Empty when
   // the class was missing or not UTF-8.
   std::string class_name;
+  // Short token ("pid 32", "window 9") when another row shares this name.
+  // Empty when the name is unique. The row shows it in a column that does
+  // not ellipsize; `name` may also carry it for the menu and the dialog.
+  std::string distinguish;
   bool protected_app = false;
   std::string protect_reason;
   std::string comm;
@@ -260,7 +264,19 @@ bool utf8_valid(const std::string& text);
 std::string escape_mnemonic(const std::string& text);
 std::string force_close_menu_label(const std::string& row_name, bool can_close,
                                    const std::string& protect_reason);
-std::string row_tooltip_text(const std::string& title_or_name);
+
+// Name painted in the ellipsizing column. A trailing " (pid N)" or
+// " (window N)" that repeats `distinguish` is removed so that token can
+// sit in its own column. The stored name, the menu, and the dialog keep it.
+std::string painted_row_name(const std::string& name, const std::string& distinguish);
+
+// Closable rows: the title, the shared-name token when one was assigned,
+// and the Force Close hint. Rows that cannot be closed use protect_reason
+// (or "Protected") and do not invite Force Close. A newline already in
+// title_or_name, such as the unclamped remainder, is kept after the reason.
+std::string row_tooltip_text(const std::string& title_or_name, bool can_close,
+                             const std::string& protect_reason,
+                             const std::string& distinguish);
 
 // GDK_KEY_Menu, the XF86 menu key beside the keypad (GDK_KEY_MenuKB), and
 // Shift+F10. Plain F10 is not a Force Close key.

@@ -6,6 +6,7 @@
 #include <glib.h>
 
 #include <cstring>
+#include <unistd.h>
 
 namespace lundukeabout {
 
@@ -57,18 +58,20 @@ AppRow::AppRow(const AppEntry& entry) : entry_(entry) {
   icon_.set_valign(Gtk::ALIGN_CENTER);
   box_.pack_start(icon_, Gtk::PACK_SHRINK);
 
-  name_.set_text(utf8_text(entry.name));
   name_.set_halign(Gtk::ALIGN_START);
   name_.set_xalign(0.0f);
   name_.set_ellipsize(Pango::ELLIPSIZE_END);
   name_.set_hexpand(true);
-  const std::string tip = row_tooltip_text(entry.tooltip.empty() ? entry.name : entry.tooltip);
-  name_.set_tooltip_text(utf8_text(tip));
-  set_tooltip_text(utf8_text(tip));
-  if (entry.protected_app) {
-    name_.set_sensitive(false);
-  }
   box_.pack_start(name_, Gtk::PACK_EXPAND_WIDGET);
+
+  // Shared-name token. It does not ellipsize: the name column gives up
+  // width first, so two long rows stay visually distinct.
+  detail_.set_halign(Gtk::ALIGN_END);
+  detail_.set_xalign(1.0f);
+  detail_.set_ellipsize(Pango::ELLIPSIZE_NONE);
+  detail_.set_hexpand(false);
+  detail_.set_no_show_all(true);
+  box_.pack_start(detail_, Gtk::PACK_SHRINK);
 
   mem_label_.set_text(memory_caption(entry));
   mem_label_.set_halign(Gtk::ALIGN_END);
@@ -89,6 +92,7 @@ AppRow::AppRow(const AppEntry& entry) : entry_(entry) {
 
   if (entry.icon) shown_icon_ = entry.icon;
 
+  apply_entry_text();
   show_all();
 }
 
@@ -99,20 +103,11 @@ AppRow::~AppRow() {
 }
 
 void AppRow::update_entry(const AppEntry& entry) {
-  const bool name_changed = entry_.name != entry.name;
   const bool mem_changed =
       entry_.rss_kb != entry.rss_kb || entry_.rss_known != entry.rss_known;
-  const bool prot_changed = entry_.protected_app != entry.protected_app;
-  const bool tip_changed = entry_.tooltip != entry.tooltip || name_changed;
   entry_ = entry;
-  if (name_changed) name_.set_text(utf8_text(entry_.name));
-  if (tip_changed) {
-    const std::string tip = row_tooltip_text(entry_.tooltip.empty() ? entry_.name : entry_.tooltip);
-    name_.set_tooltip_text(utf8_text(tip));
-    set_tooltip_text(utf8_text(tip));
-  }
+  apply_entry_text();
   if (mem_changed) mem_label_.set_text(memory_caption(entry_));
-  if (prot_changed) name_.set_sensitive(!entry_.protected_app);
   if (entry_.icon) {
     if (!same_pixbuf(shown_icon_, entry_.icon)) {
       icon_.set(entry_.icon);
@@ -126,7 +121,46 @@ void AppRow::update_entry(const AppEntry& entry) {
 }
 
 bool AppRow::can_force_close() const {
-  return !entry_.protected_app && entry_.pid > 1;
+  if (entry_.protected_app) return false;
+  if (entry_.pid <= 1) return false;
+  if (entry_.pid == ::getpid()) return false;
+  return true;
+}
+
+bool AppRow::keyboard_targets_this_row() const {
+  // The window's focus widget. has_focus() also demands a focused toplevel,
+  // which a display without a window manager does not provide.
+  return is_focus();
+}
+
+std::string AppRow::blocked_reason() const {
+  if (!entry_.protect_reason.empty()) return entry_.protect_reason;
+  if (entry_.pid == ::getpid()) return "This application";
+  if (entry_.pid <= 1) return "No process ID";
+  return "Protected";
+}
+
+void AppRow::apply_entry_text() {
+  name_.set_text(utf8_text(painted_row_name(entry_.name, entry_.distinguish)));
+  if (entry_.distinguish.empty()) {
+    detail_.set_text("");
+    detail_.hide();
+  } else {
+    detail_.set_text(utf8_text(entry_.distinguish));
+    detail_.show();
+  }
+  const bool closable = can_force_close();
+  const std::string title = entry_.tooltip.empty() ? entry_.name : entry_.tooltip;
+  const std::string tip =
+      row_tooltip_text(title, closable, closable ? std::string() : blocked_reason(),
+                       closable ? entry_.distinguish : std::string());
+  const Glib::ustring shown = utf8_text(tip);
+  name_.set_tooltip_text(shown);
+  detail_.set_tooltip_text(shown);
+  set_tooltip_text(shown);
+  name_.set_sensitive(!entry_.protected_app);
+  detail_.set_sensitive(!entry_.protected_app);
+  rebuild_menu_item();
 }
 
 void AppRow::set_force_close_handler(ForceCloseHandler handler) {
@@ -134,8 +168,10 @@ void AppRow::set_force_close_handler(ForceCloseHandler handler) {
 }
 
 void AppRow::rebuild_menu_item() {
-  item_.set_label(force_close_menu_label(entry_.name, can_force_close(), entry_.protect_reason));
-  item_.set_sensitive(can_force_close());
+  const bool closable = can_force_close();
+  item_.set_label(force_close_menu_label(entry_.name, closable,
+                                         closable ? std::string() : blocked_reason()));
+  item_.set_sensitive(closable);
 }
 
 void AppRow::popup_force_close_menu(const GdkEvent* event) {
@@ -153,9 +189,27 @@ void AppRow::popup_force_close_menu(const GdkEvent* event) {
   }
 }
 
-bool AppRow::on_button_press_event(GdkEventButton* event) {
-  if (event->type == GDK_BUTTON_PRESS && event->button == 3) {
+bool AppRow::on_focus(Gtk::DirectionType /*direction*/) {
+  // GtkContainer::focus uses has_focus(), which is false whenever the
+  // toplevel is not the active window. Tab then grabs this row again and
+  // never reaches the next one. is_focus() is the focus widget inside
+  // this window, which is enough to move on.
+  if (!get_can_focus()) return false;
+  if (!is_focus()) {
     grab_focus();
+    return true;
+  }
+  return false;
+}
+
+bool AppRow::on_button_press_event(GdkEventButton* event) {
+  // Left click and right click both make this the current row before any
+  // later Menu or Shift+F10. The key handlers act on the focused row only.
+  if (event && event->type == GDK_BUTTON_PRESS &&
+      (event->button == 1 || event->button == 3)) {
+    grab_focus();
+  }
+  if (event && event->type == GDK_BUTTON_PRESS && event->button == 3) {
     popup_force_close_menu(reinterpret_cast<const GdkEvent*>(event));
     return true;
   }
@@ -164,6 +218,9 @@ bool AppRow::on_button_press_event(GdkEventButton* event) {
 
 bool AppRow::on_key_press_event(GdkEventKey* event) {
   if (event && is_force_close_popup_key(event->keyval, event->state)) {
+    // Swallow the key even when this row is not current, so a binding
+    // cannot open Force Close for a row the user is not on.
+    if (!keyboard_targets_this_row()) return true;
     popup_force_close_menu(reinterpret_cast<const GdkEvent*>(event));
     return true;
   }
@@ -171,6 +228,7 @@ bool AppRow::on_key_press_event(GdkEventKey* event) {
 }
 
 bool AppRow::on_popup_menu() {
+  if (!keyboard_targets_this_row()) return false;
   popup_force_close_menu(nullptr);
   return true;
 }

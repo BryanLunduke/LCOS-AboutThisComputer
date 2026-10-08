@@ -1,10 +1,10 @@
 #!/bin/sh
-# Build lunduke-about_0.9-4_amd64.deb into packaging/debs/ (repo-local).
+# Build lunduke-about_0.9-5_amd64.deb into packaging/debs/ (repo-local).
 # Does NOT seed lcos-live-07 (Phil seeds by hand into packages.chroot).
 set -eu
 
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
-VERSION="0.9-4"
+VERSION="0.9-5"
 PKGNAME="lunduke-about_${VERSION}_amd64"
 BUILD="$ROOT/build-deb"
 DEST="$ROOT/packaging/src/lunduke-about"
@@ -15,8 +15,14 @@ cd "$ROOT"
 rm -rf "$BUILD"
 meson setup "$BUILD" --prefix=/usr --buildtype=release -Dstrip=true
 meson compile -C "$BUILD"
-# A red logic test must not produce a .deb.
-meson test -C "$BUILD"
+# A red test must not produce a .deb. about-ui runs under xvfb-run.
+meson test -C "$BUILD" --print-errorlogs
+if [ -z "${DISPLAY:-}" ]; then
+  # No session display: run the UI test on its own, still with no window
+  # manager. A SKIP line is part of a passing run; a failed assertion is not.
+  echo "No DISPLAY: running about-ui headless under xvfb-run -a (no window manager)"
+  xvfb-run -a "$BUILD/about-ui-test"
+fi
 
 rm -rf "$DEST"
 meson install -C "$BUILD" --destdir "$DEST"

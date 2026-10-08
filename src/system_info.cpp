@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <unordered_set>
 #include <dirent.h>
 #include <cctype>
 #include <cerrno>
@@ -132,30 +133,12 @@ std::string read_drm_fallback() {
   return "DRM: " + driver;
 }
 
-std::vector<std::string> read_proc_comms() {
-  std::vector<std::string> comms;
-  DIR* dir = opendir("/proc");
-  if (!dir) return comms;
-  while (dirent* de = readdir(dir)) {
-    if (!std::isdigit(static_cast<unsigned char>(de->d_name[0]))) continue;
-    std::ifstream in(std::string("/proc/") + de->d_name + "/comm");
-    std::string comm;
-    if (!std::getline(in, comm)) continue;
-    if (!comm.empty() && comm.back() == '\n') comm.pop_back();
-    if (!comm.empty() && comm.back() == '\r') comm.pop_back();
-    if (!comm.empty()) comms.push_back(comm);
-  }
-  closedir(dir);
-  return comms;
-}
-
 // sysfs only on the startup path. lspci / glxinfo are not launched.
-// The string is cached for the process.
+// The string is cached only after the PCI / DRM / DISPLAY choice.
 std::string read_gpu() {
   static bool cached = false;
   static std::string value;
   if (cached) return value;
-  cached = true;
 
   std::vector<GpuDevice> devices;
   if (DIR* dir = opendir("/sys/bus/pci/devices")) {
@@ -186,7 +169,12 @@ std::string read_gpu() {
   }
   value = gpu_label_from_devices(devices, db);
   if (value.empty()) value = read_drm_fallback();
-  if (value.empty()) value = virtual_display_label_from_comms(read_proc_comms());
+  if (value.empty()) {
+    const char* display = std::getenv("DISPLAY");
+    const std::string comm = server_comm_owning_display(display ? display : "");
+    value = virtual_display_label_for_server(comm);
+  }
+  cached = true;
   return value;
 }
 
@@ -278,15 +266,167 @@ std::string cpu_model_from_cpuinfo(std::istream& in) {
   return "Unknown CPU";
 }
 
-std::string virtual_display_label_from_comms(const std::vector<std::string>& comms) {
-  bool xvfb = false;
-  bool other_virtual = false;
-  for (const auto& comm : comms) {
-    if (comm == "Xvfb") xvfb = true;
-    else if (comm == "Xtigervnc" || comm == "Xvnc" || comm == "Xephyr") other_virtual = true;
+namespace {
+
+bool display_host_is_local(const std::string& host) {
+  return host.empty() || host == "unix" || host == "localhost" || host == "127.0.0.1";
+}
+
+std::string read_comm_file(pid_t pid) {
+  std::ifstream in("/proc/" + std::to_string(pid) + "/comm");
+  std::string comm;
+  if (!std::getline(in, comm)) return {};
+  while (!comm.empty() &&
+         (comm.back() == '\n' || comm.back() == '\r' || comm.back() == ' ')) {
+    comm.pop_back();
   }
-  if (xvfb) return "Virtual framebuffer (Xvfb)";
-  if (other_virtual) return "Virtual display";
+  return comm;
+}
+
+bool parse_socket_inode(const std::string& target, unsigned long& inode) {
+  constexpr char kPrefix[] = "socket:[";
+  constexpr size_t n = sizeof(kPrefix) - 1;
+  if (target.size() < n + 2 || target.compare(0, n, kPrefix) != 0 || target.back() != ']') {
+    return false;
+  }
+  const std::string digits = target.substr(n, target.size() - n - 1);
+  if (digits.empty()) return false;
+  char* end = nullptr;
+  const unsigned long parsed = std::strtoul(digits.c_str(), &end, 10);
+  if (end != digits.c_str() + digits.size() || parsed == 0) return false;
+  inode = parsed;
+  return true;
+}
+
+}  // namespace
+
+std::optional<int> local_x_display_number(const std::string& spec) {
+  if (spec.empty()) return std::nullopt;
+  const auto colon = spec.rfind(':');
+  if (colon == std::string::npos) return std::nullopt;
+  if (!display_host_is_local(spec.substr(0, colon))) return std::nullopt;
+  std::string rest = spec.substr(colon + 1);
+  const auto dot = rest.find('.');
+  if (dot != std::string::npos) rest.resize(dot);
+  if (rest.empty() || rest.size() > 8) return std::nullopt;
+  for (unsigned char c : rest) {
+    if (!std::isdigit(c)) return std::nullopt;
+  }
+  try {
+    const int n = std::stoi(rest);
+    if (n < 0) return std::nullopt;
+    return n;
+  } catch (...) {
+    return std::nullopt;
+  }
+}
+
+bool x_socket_path_matches_display(const std::string& path, int display) {
+  if (display < 0 || path.empty()) return false;
+  const std::string suffix = "/.X11-unix/X" + std::to_string(display);
+  if (path.size() < suffix.size()) return false;
+  return path.compare(path.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
+std::vector<XListenSocket> parse_proc_net_unix(std::istream& in) {
+  std::vector<XListenSocket> out;
+  std::string line;
+  while (std::getline(in, line)) {
+    if (!line.empty() && line.back() == '\r') line.pop_back();
+    std::istringstream iss(line);
+    std::string num, refcnt, proto, flags_s, type, st, inode_s, path;
+    if (!(iss >> num >> refcnt >> proto >> flags_s >> type >> st >> inode_s)) continue;
+    char* flags_end = nullptr;
+    const unsigned long flags = std::strtoul(flags_s.c_str(), &flags_end, 16);
+    if (flags_end == flags_s.c_str()) continue;
+    // SO_ACCEPTCON (1 << 16). Connected clients share the path and are not it.
+    constexpr unsigned long kListen = 0x10000ul;
+    if ((flags & kListen) == 0) continue;
+    if (!(iss >> path) || path.empty()) continue;
+    char* inode_end = nullptr;
+    const unsigned long inode = std::strtoul(inode_s.c_str(), &inode_end, 10);
+    if (inode_end == inode_s.c_str() || inode == 0) continue;
+    out.push_back(XListenSocket{inode, path});
+  }
+  return out;
+}
+
+std::string server_comm_for_display(int display, const std::vector<XListenSocket>& sockets,
+                                   const std::vector<ProcessSocket>& processes) {
+  if (display < 0) return {};
+  std::unordered_set<unsigned long> inodes;
+  for (const auto& sock : sockets) {
+    if (sock.inode == 0) continue;
+    if (!x_socket_path_matches_display(sock.path, display)) continue;
+    inodes.insert(sock.inode);
+  }
+  if (inodes.empty()) return {};
+  const ProcessSocket* best = nullptr;
+  for (const auto& proc : processes) {
+    if (proc.pid <= 0 || proc.comm.empty()) continue;
+    if (!inodes.count(proc.inode)) continue;
+    if (!best || proc.pid < best->pid) best = &proc;
+  }
+  if (!best) return {};
+  return best->comm;
+}
+
+std::string server_comm_owning_display(const std::string& display_spec) {
+  const auto number = local_x_display_number(display_spec);
+  if (!number) return {};
+  std::ifstream table("/proc/net/unix");
+  if (!table) return {};
+  const std::vector<XListenSocket> sockets = parse_proc_net_unix(table);
+  std::unordered_set<unsigned long> want;
+  std::vector<XListenSocket> matched;
+  matched.reserve(sockets.size());
+  for (const auto& sock : sockets) {
+    if (!x_socket_path_matches_display(sock.path, *number)) continue;
+    want.insert(sock.inode);
+    matched.push_back(sock);
+  }
+  if (want.empty()) return {};
+
+  std::vector<ProcessSocket> hits;
+  DIR* proc = opendir("/proc");
+  if (!proc) return {};
+  while (dirent* de = readdir(proc)) {
+    if (!std::isdigit(static_cast<unsigned char>(de->d_name[0]))) continue;
+    char* end = nullptr;
+    const unsigned long pid_ul = std::strtoul(de->d_name, &end, 10);
+    if (!end || *end != '\0' || pid_ul == 0 || pid_ul > static_cast<unsigned long>(INT_MAX)) {
+      continue;
+    }
+    const pid_t pid = static_cast<pid_t>(pid_ul);
+    const std::string fd_dir_path = std::string("/proc/") + de->d_name + "/fd";
+    DIR* fds = opendir(fd_dir_path.c_str());
+    if (!fds) continue;
+    unsigned long held = 0;
+    while (dirent* fd = readdir(fds)) {
+      if (fd->d_name[0] == '.') continue;
+      const std::string link_path = fd_dir_path + "/" + fd->d_name;
+      char buf[96];
+      const ssize_t n = ::readlink(link_path.c_str(), buf, sizeof(buf));
+      if (n <= 0 || static_cast<size_t>(n) >= sizeof(buf)) continue;
+      unsigned long inode = 0;
+      if (!parse_socket_inode(std::string(buf, static_cast<size_t>(n)), inode)) continue;
+      if (!want.count(inode)) continue;
+      held = inode;
+      break;
+    }
+    closedir(fds);
+    if (held == 0) continue;
+    const std::string comm = read_comm_file(pid);
+    if (comm.empty()) continue;
+    hits.push_back(ProcessSocket{pid, held, comm});
+  }
+  closedir(proc);
+  return server_comm_for_display(*number, matched, hits);
+}
+
+std::string virtual_display_label_for_server(const std::string& comm) {
+  if (comm == "Xvfb") return "Virtual framebuffer (Xvfb)";
+  if (comm == "Xtigervnc" || comm == "Xvnc" || comm == "Xephyr") return "Virtual display";
   return "Unknown GPU";
 }
 
