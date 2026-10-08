@@ -1,3 +1,25 @@
+lunduke-about (0.9-8) unstable; urgency=medium
+
+  * LCOS System is a normal row inside the application list again. It stays
+    the last row when the list is ordered by name or by RAM, ascending or
+    descending, including after a refresh where its RAM is the largest or
+    the smallest figure. Force Close stays unavailable on that row from
+    the right-click menu, the Menu key, Shift+F10, and Enter. The separate
+    strip above the list is gone.
+  * XFCE and desktop-session plumbing is not listed as an application.
+    That class (panel and its plugins, xfdesktop, xfwm4, the session and
+    settings daemons, notifyd, Thunar's daemon with no window, lightdm and
+    greeters, at-spi, the polkit agents, power manager, screensaver,
+    locker, gvfs, dbus, pulseaudio/pipewire, nm-applet, blueman-applet,
+    xdg-desktop-portal, and the same kind of helper) is counted in the
+    LCOS System total. Thunar windows, terminals, Edit, Paint, Brave, and
+    lunduke-* applications stay on the list.
+  * Supporters of LCOS: Steve Rockefeller is the second name and Jack
+    Beckman is last (PR #13, already on master since 0.9-7).
+  * Meson project version remains 0.9.
+
+ -- Phil <phil@brushpad.local>  Thu, 08 Oct 2026 17:45:00 +0000
+
 lunduke-about (0.9-7) unstable; urgency=medium
 
   * CPU core and thread counts, and each extra GPU name, wrap inside the

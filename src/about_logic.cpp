@@ -61,6 +61,166 @@ const ProtectRule kProtectRules[] = {
     {"xfce4-screensaver", "Screensaver"},
 };
 
+// Session plumbing versus an application. One table decides the class.
+//
+// A name matches when /proc comm or argv0's basename equals `id`, or when
+// comm is the kernel's 15-byte truncation of a longer `id`. `hyphen_prefix`
+// also matches `id` + '-' + more (lightdm-gtk-greeter, gvfsd-trash,
+// pipewire-pulse, xdg-desktop-portal-gtk). Titles are not names.
+//
+// Anything absent from this table is an application. That includes
+// xfce4-terminal, mousepad (Edit), brave, and every lunduke-* program.
+// xfce4-terminal must not inherit a prefix of xfce4-panel.
+//
+// Thunar is not in this table. It is system only when the command line
+// has `--daemon` as its own argument and the process owns no top-level
+// window. A Thunar window stays an application, daemon flag or not.
+//
+// Panel plugins and the libxfce4panel wrapper are matched separately:
+//   panel-*-plugin
+//   panel-<digits>-<name>   (the 15-byte comm of a longer plugin name)
+//   wrapper-2.0
+//   an argument whose basename is wrapper-2.0 or starts with libxfce4panel
+const struct SystemName {
+  const char* id;
+  bool hyphen_prefix;
+  const char* covers;
+} kSystemNames[] = {
+    {"xfce4-panel", false, "panel"},
+    {"xfdesktop", false, "desktop"},
+    {"xfwm4", false, "window manager"},
+    {"xfce4-session", false, "session manager"},
+    {"xfsettingsd", false, "settings daemon"},
+    {"xfconfd", false, "settings daemon"},
+    {"xfce4-notifyd", false, "notifications"},
+    {"lightdm", true, "display manager and greeters"},
+    {"at-spi-bus-launcher", false, "at-spi bus"},
+    {"at-spi2-registryd", false, "at-spi registry"},
+    {"at-spi-registryd", false, "at-spi registry"},
+    {"polkit-gnome-authentication-agent-1", false, "polkit agent"},
+    {"xfce-polkit", false, "polkit agent"},
+    {"lxpolkit", false, "polkit agent"},
+    {"xfce4-power-manager", false, "power manager"},
+    {"xfce4-screensaver", false, "screensaver"},
+    {"light-locker", false, "locker"},
+    {"xiccd", false, "color daemon"},
+    {"gvfsd", true, "gvfs daemon"},
+    {"gvfs", true, "gvfs monitor"},
+    {"dbus-daemon", false, "session bus"},
+    {"dbus-broker", true, "session bus"},
+    {"pulseaudio", false, "audio"},
+    {"pipewire", true, "audio, including pipewire-pulse"},
+    {"wireplumber", false, "audio session"},
+    {"nm-applet", false, "network applet"},
+    {"blueman-applet", false, "bluetooth applet"},
+    {"xdg-desktop-portal", true, "desktop portals"},
+};
+
+bool istarts_with(const std::string& text, const char* prefix) {
+  if (!prefix) return false;
+  const size_t n = std::strlen(prefix);
+  if (text.size() < n) return false;
+  for (size_t i = 0; i < n; ++i) {
+    const unsigned char a = static_cast<unsigned char>(text[i]);
+    const unsigned char b = static_cast<unsigned char>(prefix[i]);
+    if (std::tolower(a) != std::tolower(b)) return false;
+  }
+  return true;
+}
+
+bool iends_with(const std::string& text, const char* suffix) {
+  if (!suffix) return false;
+  const size_t n = std::strlen(suffix);
+  if (text.size() < n) return false;
+  const size_t off = text.size() - n;
+  for (size_t i = 0; i < n; ++i) {
+    const unsigned char a = static_cast<unsigned char>(text[off + i]);
+    const unsigned char b = static_cast<unsigned char>(suffix[i]);
+    if (std::tolower(a) != std::tolower(b)) return false;
+  }
+  return true;
+}
+
+bool hyphen_continuation(const std::string& text, const char* id) {
+  if (!id) return false;
+  const size_t n = std::strlen(id);
+  if (text.size() <= n || text[n] != '-') return false;
+  for (size_t i = 0; i < n; ++i) {
+    const unsigned char a = static_cast<unsigned char>(text[i]);
+    const unsigned char b = static_cast<unsigned char>(id[i]);
+    if (std::tolower(a) != std::tolower(b)) return false;
+  }
+  return true;
+}
+
+bool matches_system_name(const std::string& name) {
+  if (name.empty()) return false;
+  for (const auto& rule : kSystemNames) {
+    if (equals_id(name, rule.id) || equals_comm(name, rule.id)) return true;
+    if (rule.hyphen_prefix && hyphen_continuation(name, rule.id)) return true;
+  }
+  return false;
+}
+
+// panel-*-plugin, and panel-<digits>-<rest> so a 15-byte comm still hits.
+bool is_panel_plugin_name(const std::string& name) {
+  if (name.empty()) return false;
+  const size_t panel = std::strlen("panel-");
+  const size_t plugin = std::strlen("-plugin");
+  if (istarts_with(name, "panel-") && iends_with(name, "-plugin") &&
+      name.size() > panel + plugin) {
+    return true;
+  }
+  if (!istarts_with(name, "panel-") || name.size() <= panel) return false;
+  size_t i = panel;
+  if (!std::isdigit(static_cast<unsigned char>(name[i]))) return false;
+  while (i < name.size() && std::isdigit(static_cast<unsigned char>(name[i]))) ++i;
+  return i + 1 < name.size() && name[i] == '-';
+}
+
+std::string path_basename(const std::string& path) {
+  const auto slash = path.find_last_of('/');
+  if (slash == std::string::npos) return path;
+  return path.substr(slash + 1);
+}
+
+std::vector<std::string> command_arguments(const std::string& cmdline) {
+  std::vector<std::string> args;
+  if (cmdline.empty()) return args;
+  const bool nul = cmdline.find('\0') != std::string::npos;
+  std::string cur;
+  auto flush = [&]() {
+    if (!cur.empty()) args.push_back(cur);
+    cur.clear();
+  };
+  for (unsigned char c : cmdline) {
+    if (c == '\0' || (!nul && (c == ' ' || c == '\t' || c == '\n'))) {
+      flush();
+      continue;
+    }
+    cur.push_back(static_cast<char>(c));
+  }
+  flush();
+  return args;
+}
+
+bool is_thunar_name(const std::string& name) { return equals_id(name, "thunar"); }
+
+bool is_panel_wrapper_arg(const std::string& arg) {
+  const std::string base = path_basename(arg);
+  if (equals_id(base, "wrapper-2.0")) return true;
+  if (istarts_with(base, "libxfce4panel")) return true;
+  return false;
+}
+
+bool name_is_session_plumbing(const std::string& name) {
+  if (name.empty()) return false;
+  if (matches_system_name(name)) return true;
+  if (is_panel_plugin_name(name)) return true;
+  if (equals_id(name, "wrapper-2.0")) return true;
+  return false;
+}
+
 std::string application_name(const WindowFact& w) {
   // A Latin-1 class or title is not a name. Fall through to the command,
   // then a valid title, then the pid. Pango must not be handed those bytes.
@@ -364,6 +524,113 @@ bool window_marks_protected(const WindowFact& window, std::string& reason) {
   if (!comm_hit) return false;
   reason = comm_reason;
   return true;
+}
+
+ProcessClass classify_process(const ProcessView& process) {
+  const std::vector<std::string> args = command_arguments(process.cmdline);
+  std::vector<std::string> names;
+  if (!process.comm.empty()) names.push_back(process.comm);
+  if (!args.empty()) names.push_back(path_basename(args[0]));
+  // A class is a name only when the kernel didn't give us a comm. A browser
+  // whose class happens to say xfce4-panel is still a browser.
+  if (process.comm.empty()) {
+    if (!process.wm_res_name.empty()) names.push_back(process.wm_res_name);
+    if (!process.wm_res_class.empty()) names.push_back(process.wm_res_class);
+  }
+
+  bool thunar = false;
+  for (const auto& name : names) {
+    if (is_thunar_name(name)) thunar = true;
+  }
+  if (thunar) {
+    bool daemon = false;
+    for (const auto& arg : args) {
+      if (arg == "--daemon") daemon = true;
+    }
+    // Hidden only for the daemon with no window of its own.
+    if (daemon && !process.owns_toplevel_window) return ProcessClass::System;
+    return ProcessClass::App;
+  }
+
+  for (const auto& name : names) {
+    if (name_is_session_plumbing(name)) return ProcessClass::System;
+  }
+  for (const auto& arg : args) {
+    if (is_panel_wrapper_arg(arg)) return ProcessClass::System;
+  }
+  return ProcessClass::App;
+}
+
+SessionRamSplit split_session_ram(long used_kb, const std::vector<SessionRamSample>& samples) {
+  SessionRamSplit out;
+  for (const auto& sample : samples) {
+    if (classify_process(sample.process) == ProcessClass::System) out.system_kb += sample.rss_kb;
+    else out.app_kb += sample.rss_kb;
+  }
+  // Session RSS is not part of app_kb, so the remainder keeps it.
+  out.lcos = system_remainder_kb(used_kb, out.app_kb);
+  return out;
+}
+
+namespace {
+
+bool row_is_lcos_system(const OrderedRow& row) {
+  return row.lcos_system || row.name == "LCOS System";
+}
+
+int compare_ci(const std::string& a, const std::string& b) {
+  const size_t n = a.size() < b.size() ? a.size() : b.size();
+  for (size_t i = 0; i < n; ++i) {
+    const unsigned char ca = static_cast<unsigned char>(std::tolower(static_cast<unsigned char>(a[i])));
+    const unsigned char cb = static_cast<unsigned char>(std::tolower(static_cast<unsigned char>(b[i])));
+    if (ca < cb) return -1;
+    if (ca > cb) return 1;
+  }
+  if (a.size() < b.size()) return -1;
+  if (a.size() > b.size()) return 1;
+  return 0;
+}
+
+bool tie_before(const OrderedRow& a, size_t ai, const OrderedRow& b, size_t bi) {
+  if (a.pid != b.pid) return a.pid < b.pid;
+  if (a.xid != b.xid) return a.xid < b.xid;
+  return ai < bi;
+}
+
+}  // namespace
+
+std::vector<size_t> order_app_row_indices(const std::vector<OrderedRow>& rows,
+                                          AppSortColumn column,
+                                          AppSortDirection direction) {
+  std::vector<size_t> apps;
+  std::vector<size_t> system;
+  apps.reserve(rows.size());
+  for (size_t i = 0; i < rows.size(); ++i) {
+    if (row_is_lcos_system(rows[i])) system.push_back(i);
+    else apps.push_back(i);
+  }
+  const bool ascending = direction == AppSortDirection::Ascending;
+  std::stable_sort(apps.begin(), apps.end(), [&](size_t ai, size_t bi) {
+    const OrderedRow& a = rows[ai];
+    const OrderedRow& b = rows[bi];
+    if (column == AppSortColumn::Name) {
+      const int cmp = compare_ci(a.name, b.name);
+      if (cmp != 0) return ascending ? cmp < 0 : cmp > 0;
+      return tie_before(a, ai, b, bi);
+    }
+    if (a.rss_known != b.rss_known) {
+      // Unknown is below every known value: first when ascending, last
+      // among applications when descending.
+      if (ascending) return !a.rss_known && b.rss_known;
+      return a.rss_known && !b.rss_known;
+    }
+    if (a.rss_known && a.rss_kb != b.rss_kb) {
+      return ascending ? a.rss_kb < b.rss_kb : a.rss_kb > b.rss_kb;
+    }
+    return tie_before(a, ai, b, bi);
+  });
+  apps.insert(apps.end(), system.begin(), system.end());
+  return apps;
 }
 
 namespace {

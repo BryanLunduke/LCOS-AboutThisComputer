@@ -123,11 +123,25 @@ void AppRow::update_entry(const AppEntry& entry) {
 }
 
 bool AppRow::can_force_close() const {
+  if (entry_.lcos_system) return false;
   if (entry_.protected_app) return false;
   if (entry_.pid <= 1) return false;
   if (entry_.pid == ::getpid()) return false;
   return true;
 }
+
+bool AppRow::force_close_available() const { return can_force_close(); }
+
+bool AppRow::force_close_item_sensitive() const {
+  return item_.get_sensitive() && item_.is_sensitive();
+}
+
+void AppRow::dismiss_menu() {
+  menu_.popdown();
+  menu_posted_ = false;
+}
+
+void AppRow::activate_force_close_item() { on_force_close(); }
 
 bool AppRow::keyboard_targets_this_row() const {
   // The window's focus widget. has_focus() also demands a focused toplevel,
@@ -160,8 +174,11 @@ void AppRow::apply_entry_text() {
   name_.set_tooltip_text(shown);
   detail_.set_tooltip_text(shown);
   set_tooltip_text(shown);
-  name_.set_sensitive(!entry_.protected_app);
-  detail_.set_sensitive(!entry_.protected_app);
+  // LCOS System stays the same colour as the other rows. Force Close is
+  // still refused: the row is marked system and it has no process id.
+  const bool dim_label = entry_.protected_app && !entry_.lcos_system;
+  name_.set_sensitive(!dim_label);
+  detail_.set_sensitive(!dim_label);
   rebuild_menu_item();
 }
 

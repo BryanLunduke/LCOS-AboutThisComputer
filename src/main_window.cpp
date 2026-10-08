@@ -140,8 +140,13 @@ constexpr int kCreditsLoopGapPx = 22;
 constexpr int kFitSlackPx = 1;
 
 std::string app_key(const AppEntry& entry) {
+  if (entry.lcos_system || entry.name == "LCOS System") return "lcos-system";
   if (entry.pid > 1) return "pid:" + std::to_string(entry.pid);
   return "xid:" + std::to_string(entry.xid);
+}
+
+bool entry_is_lcos_system(const AppEntry& entry) {
+  return entry.lcos_system || entry.name == "LCOS System";
 }
 
 int open_pidfd(pid_t pid) {
@@ -605,12 +610,8 @@ MainWindow::MainWindow() {
   root_.pack_start(ram_bar_, Gtk::PACK_SHRINK);
   update_ram_bar();
 
-  // LCOS System is pinned under the bar so the default 520×360 window
-  // still shows it. The scroller below is only the other rows.
-  system_slot_.set_hexpand(true);
-  root_.pack_start(system_slot_, Gtk::PACK_SHRINK);
-
-  // 4. Scrollable app list in beveled frame
+  // 4. Scrollable app list in beveled frame. LCOS System is the last row
+  // inside this list, not a strip between the bar and the frame.
   auto* frame = Gtk::make_managed<Gtk::Frame>();
   frame->set_shadow_type(Gtk::SHADOW_IN);
   frame->get_style_context()->add_class("platinum-list-frame");
@@ -631,8 +632,8 @@ MainWindow::MainWindow() {
     tag_bar(list_scroll_.get_vscrollbar());
     tag_bar(list_scroll_.get_hscrollbar());
   });
-  // Shorter than the old 100px so the pinned LCOS System row still fits
-  // inside the 360px window.
+  // The list, including LCOS System at the bottom, fills the rest of the
+  // 360px window. The minimum keeps a couple of rows requestable.
   list_scroll_.set_min_content_height(64);
 
   list_box_.get_style_context()->add_class("platinum-list");
@@ -823,16 +824,6 @@ void MainWindow::update_ram_bar() {
                       readout.free);
 }
 
-void MainWindow::ensure_system_row(const AppEntry& entry) {
-  if (!system_row_) {
-    system_row_ = Gtk::manage(new AppRow(entry));
-    system_slot_.pack_start(*system_row_, Gtk::PACK_SHRINK);
-    system_row_->show_all();
-  } else {
-    system_row_->update_entry(entry);
-  }
-}
-
 AppEntry MainWindow::make_system_entry(long system_kb, const std::string& tooltip) {
   AppEntry system_entry;
   system_entry.name = "LCOS System";
@@ -843,8 +834,106 @@ AppEntry MainWindow::make_system_entry(long system_kb, const std::string& toolti
   if (!system_icon_) system_icon_ = load_lcos_system_icon();
   system_entry.icon = system_icon_;
   system_entry.protected_app = true;
+  system_entry.lcos_system = true;
   system_entry.protect_reason = "LCOS System";
   return system_entry;
+}
+
+void MainWindow::freeze_refresh() {
+  refresh_frozen_ = true;
+  stop_refresh_work();
+}
+
+void MainWindow::reorder_app_rows() {
+  std::vector<OrderedRow> keys;
+  keys.reserve(app_rows_.size());
+  for (const auto& item : app_rows_) {
+    OrderedRow row;
+    if (item.row) {
+      const AppEntry& entry = item.row->entry();
+      row.name = entry.name;
+      row.rss_kb = entry.rss_kb;
+      row.rss_known = entry.rss_known;
+      row.pid = entry.pid;
+      row.xid = entry.xid;
+      row.lcos_system = entry_is_lcos_system(entry);
+    }
+    keys.push_back(row);
+  }
+  const std::vector<size_t> order =
+      order_app_row_indices(keys, sort_column_, sort_direction_);
+  std::vector<AppListItem> ordered;
+  ordered.reserve(order.size());
+  int pos = 0;
+  for (size_t index : order) {
+    if (index >= app_rows_.size()) continue;
+    AppListItem item = app_rows_[index];
+    if (item.row) list_box_.reorder_child(*item.row, pos++);
+    if (item.sep) list_box_.reorder_child(*item.sep, pos++);
+    ordered.push_back(item);
+  }
+  app_rows_ = std::move(ordered);
+  sort_dirty_ = false;
+}
+
+void MainWindow::pin_system_row_last() {
+  std::vector<AppListItem> apps;
+  std::vector<AppListItem> system;
+  apps.reserve(app_rows_.size());
+  for (const auto& item : app_rows_) {
+    if (item.row && entry_is_lcos_system(item.row->entry())) system.push_back(item);
+    else apps.push_back(item);
+  }
+  if (system.empty()) return;
+  bool already = app_rows_.size() >= system.size();
+  if (already) {
+    for (size_t i = 0; i < system.size(); ++i) {
+      const size_t at = app_rows_.size() - system.size() + i;
+      if (app_rows_[at].key != system[i].key) already = false;
+    }
+  }
+  if (already) return;
+  app_rows_ = std::move(apps);
+  app_rows_.insert(app_rows_.end(), system.begin(), system.end());
+  int pos = 0;
+  for (auto& item : app_rows_) {
+    if (item.row) list_box_.reorder_child(*item.row, pos++);
+    if (item.sep) list_box_.reorder_child(*item.sep, pos++);
+  }
+}
+
+void MainWindow::set_app_sort(AppSortColumn column, AppSortDirection direction) {
+  sort_column_ = column;
+  sort_direction_ = direction;
+  sort_dirty_ = true;
+  if (!app_rows_.empty()) reorder_app_rows();
+}
+
+void MainWindow::replace_listed_apps(std::vector<AppEntry> apps, AppEntry system) {
+  freeze_refresh();
+  apps.erase(std::remove_if(apps.begin(), apps.end(),
+                            [](const AppEntry& entry) { return entry_is_lcos_system(entry); }),
+             apps.end());
+  system.lcos_system = true;
+  system.protected_app = true;
+  if (system.name.empty()) system.name = "LCOS System";
+  if (system.protect_reason.empty()) system.protect_reason = "LCOS System";
+  apps.push_back(std::move(system));
+  sort_dirty_ = true;
+  sync_app_rows(apps, true);
+}
+
+void MainWindow::set_row_rss(const std::string& name, long rss_kb, bool known) {
+  for (auto& item : app_rows_) {
+    if (!item.row || item.row->entry().name != name) continue;
+    AppEntry updated = item.row->entry();
+    updated.rss_kb = rss_kb;
+    updated.rss_known = known;
+    item.row->update_entry(updated);
+  }
+  // A refresh rewrites the figure. It does not reshuffle the other rows.
+  // LCOS System is put back at the bottom if a previous order left it elsewhere.
+  pin_system_row_last();
 }
 
 void MainWindow::sync_app_rows(const std::vector<AppEntry>& apps, bool allow_structure) {
@@ -922,26 +1011,10 @@ void MainWindow::sync_app_rows(const std::vector<AppEntry>& apps, bool allow_str
   update_matching();
 
   // Same apps: leave the rows where the user is looking, even if RSS rank
-  // changed. A real membership change may be re-sorted by RSS.
-  if (!same_set) {
-    std::map<std::string, AppListItem> pool;
-    for (auto& item : app_rows_) pool.emplace(item.key, item);
-    std::vector<std::string> desired = new_order;
-    for (const auto& item : app_rows_) {
-      if (!new_keys.count(item.key)) desired.push_back(item.key);
-    }
-    std::vector<AppListItem> ordered;
-    ordered.reserve(desired.size());
-    int pos = 0;
-    for (const auto& key : desired) {
-      auto it = pool.find(key);
-      if (it == pool.end() || !it->second.row) continue;
-      list_box_.reorder_child(*it->second.row, pos++);
-      if (it->second.sep) list_box_.reorder_child(*it->second.sep, pos++);
-      ordered.push_back(it->second);
-    }
-    app_rows_ = std::move(ordered);
-  }
+  // changed, and keep LCOS System at the bottom. A membership change, or an
+  // explicit sort, orders name or RAM and still pins LCOS System last.
+  if (!same_set || sort_dirty_) reorder_app_rows();
+  else pin_system_row_last();
 
   if (restore_scroll) arm_scroll_restore();
 }
@@ -1072,7 +1145,7 @@ void MainWindow::apply_app_snapshot(std::vector<AppEntry> apps, bool x11) {
     }
     system_entry = make_system_entry(remainder.shown_kb, system_tip);
   }
-  ensure_system_row(system_entry);
+  apps.push_back(std::move(system_entry));
 
   sync_app_rows(apps, force_close_depth_ == 0);
   last_snapshot_ = std::chrono::steady_clock::now();
@@ -1174,7 +1247,10 @@ void MainWindow::on_force_close(const AppEntry& entry_ref) {
   // Snapshot before the dialog. dlg.run() nests the main loop, so a refresh
   // must not destroy the AppRow that owns entry_ref.
   const AppEntry entry = entry_ref;
-  if (entry.protected_app || entry.pid <= 1 || entry.pid == getpid()) return;
+  if (entry.lcos_system || entry.name == "LCOS System" || entry.protected_app ||
+      entry.pid <= 1 || entry.pid == getpid()) {
+    return;
+  }
 
   ProcSnapshot pinned;
   pinned.ok = entry.identity_ok;
@@ -1278,6 +1354,7 @@ void MainWindow::stop_refresh_work() {
 }
 
 void MainWindow::on_mapped() {
+  if (refresh_frozen_) return;
   auto window = get_window();
   if (window && (window->get_state() & Gdk::WINDOW_STATE_ICONIFIED)) {
     iconified_ = true;
@@ -1297,7 +1374,7 @@ bool MainWindow::on_window_state(GdkEventWindowState* event) {
   if (now_iconified) {
     iconified_ = true;
     stop_refresh_work();
-  } else if ((event->changed_mask & GDK_WINDOW_STATE_ICONIFIED) != 0) {
+  } else if (!refresh_frozen_ && (event->changed_mask & GDK_WINDOW_STATE_ICONIFIED) != 0) {
     iconified_ = false;
     if (get_mapped()) {
       start_refresh_timer();
@@ -1308,7 +1385,7 @@ bool MainWindow::on_window_state(GdkEventWindowState* event) {
 }
 
 void MainWindow::schedule_refresh() {
-  if (!alive_ || iconified_ || !get_mapped()) return;
+  if (refresh_frozen_ || !alive_ || iconified_ || !get_mapped()) return;
   if (refresh_running_) {
     // Explicit callers (map, Force Close) may run once more when the probe
     // finishes. The 3s timer never reaches this branch while a probe runs.
@@ -1344,6 +1421,7 @@ bool MainWindow::on_probe_idle() {
 }
 
 bool MainWindow::on_refresh_tick() {
+  if (refresh_frozen_) return false;
   if (!alive_ || iconified_ || !get_mapped()) return true;
   if (refresh_running_) return true;
   if (last_snapshot_.time_since_epoch().count() != 0 &&

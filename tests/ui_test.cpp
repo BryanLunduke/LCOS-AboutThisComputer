@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Headless-display checks for the window: ellipsized OS line, Force Close
-// keyboard popup, a scrollbar that is not an overlay, and LCOS System
-// outside the scroller at the default size.
+// keyboard popup, a scrollbar that is not an overlay, and LCOS System as
+// the last row inside the application list.
 #include "app_row.hpp"
 #include "main_window.hpp"
 
@@ -100,6 +100,33 @@ bool inside_scrolled(Gtk::Widget& widget) {
     if (dynamic_cast<Gtk::ScrolledWindow*>(parent)) return true;
   }
   return false;
+}
+
+bool inside_list_box(Gtk::Widget& widget) {
+  for (Gtk::Widget* parent = &widget; parent; parent = parent->get_parent()) {
+    if (parent->get_style_context()->has_class("platinum-list")) return true;
+  }
+  return false;
+}
+
+Gtk::Box* find_list_box(Gtk::Widget& widget) {
+  Gtk::Box* list = nullptr;
+  walk(widget, [&](Gtk::Widget& child) {
+    if (list) return;
+    if (!child.get_style_context()->has_class("platinum-list")) return;
+    if (auto* box = dynamic_cast<Gtk::Box*>(&child)) list = box;
+  });
+  return list;
+}
+
+std::vector<lundukeabout::AppRow*> rows_in_list(Gtk::Widget& widget) {
+  std::vector<lundukeabout::AppRow*> rows;
+  Gtk::Box* list = find_list_box(widget);
+  if (!list) return rows;
+  for (Gtk::Widget* child : list->get_children()) {
+    if (auto* row = dynamic_cast<lundukeabout::AppRow*>(child)) rows.push_back(row);
+  }
+  return rows;
 }
 
 void test_info_label() {
@@ -609,8 +636,21 @@ void test_window_layout() {
   }
   CHECK(system != nullptr);
   if (system) {
-    CHECK(inside_scrolled(*system) == false);
+    CHECK(inside_scrolled(*system));
+    CHECK(inside_list_box(*system));
     CHECK(system->get_mapped());
+    if (Gtk::Box* list = find_list_box(window)) {
+      for (Gtk::Widget* parent = list; parent; parent = parent->get_parent()) {
+        auto* scroll = dynamic_cast<Gtk::ScrolledWindow*>(parent);
+        if (!scroll) continue;
+        if (auto adj = scroll->get_vadjustment()) {
+          const double top = adj->get_upper() - adj->get_page_size();
+          adj->set_value(top > 0.0 ? top : 0.0);
+          drain();
+        }
+        break;
+      }
+    }
     int window_h = window.get_allocated_height();
     int x = 0;
     int y = 0;
@@ -620,6 +660,14 @@ void test_window_layout() {
     CHECK(system->get_allocated_height() > 1);
     CHECK(y >= 0);
     CHECK(bottom <= window_h);
+    const auto live_rows = rows_in_list(window);
+    CHECK(!live_rows.empty());
+    if (!live_rows.empty()) CHECK(live_rows.back()->entry().name == "LCOS System");
+    int outside = 0;
+    walk(window, [&](Gtk::Widget& widget) {
+      if (dynamic_cast<lundukeabout::AppRow*>(&widget) && !inside_list_box(widget)) ++outside;
+    });
+    CHECK(outside == 0);
   }
 
   // The two new names stay in order, and the wrapped block still fits in
@@ -836,6 +884,193 @@ void test_return_activates_row() {
   drain();
 }
 
+lundukeabout::AppEntry named_app(const std::string& name, pid_t pid, long rss) {
+  lundukeabout::AppEntry entry = closable_entry(name, pid);
+  entry.rss_kb = rss;
+  entry.rss_known = true;
+  return entry;
+}
+
+std::vector<std::string> row_names(const std::vector<lundukeabout::AppRow*>& rows) {
+  std::vector<std::string> names;
+  names.reserve(rows.size());
+  for (auto* row : rows) names.push_back(row->entry().name);
+  return names;
+}
+
+void refuse_force_close(lundukeabout::AppRow& row, int& hits) {
+  const int before = hits;
+  CHECK(!row.force_close_available());
+  CHECK(row.get_can_focus());
+  row.grab_focus();
+  drain();
+  CHECK(row.is_focus());
+  send_button(row, 3);
+  drain();
+  CHECK(row.is_focus());
+  CHECK(hits == before);
+  CHECK(!row.force_close_available());
+  CHECK(!row.force_close_item_sensitive());
+  CHECK(row.get_tooltip_text().find("Force Close") == std::string::npos);
+  row.activate_force_close_item();
+  drain();
+  CHECK(hits == before);
+  row.dismiss_menu();
+  drain();
+
+  send_key(row, GDK_KEY_Menu, 0);
+  drain();
+  CHECK(hits == before);
+  CHECK(!row.force_close_item_sensitive());
+  row.activate_force_close_item();
+  CHECK(hits == before);
+  row.dismiss_menu();
+  drain();
+
+  send_key(row, GDK_KEY_F10, GDK_SHIFT_MASK);
+  drain();
+  CHECK(hits == before);
+  CHECK(!row.force_close_item_sensitive());
+  row.activate_force_close_item();
+  CHECK(hits == before);
+  row.dismiss_menu();
+  drain();
+
+  send_key(row, GDK_KEY_Return, 0);
+  drain();
+  CHECK(hits == before);
+  CHECK(!row.force_close_item_sensitive());
+  row.activate_force_close_item();
+  CHECK(hits == before);
+  row.dismiss_menu();
+  drain();
+}
+
+void test_lcos_system_row() {
+  lundukeabout::MainWindow window;
+  drain();
+  std::vector<lundukeabout::AppEntry> apps;
+  apps.push_back(named_app("Mango", 11, 50));
+  apps.push_back(named_app("Alpha", 10, 100));
+  apps.push_back(named_app("Zebra", 12, 10));
+  lundukeabout::AppEntry system;
+  system.name = "LCOS System";
+  system.tooltip = "LCOS System";
+  system.rss_kb = 1;
+  system.rss_known = true;
+  system.lcos_system = true;
+  system.protected_app = true;
+  system.protect_reason = "LCOS System";
+  window.replace_listed_apps(apps, system);
+  drain();
+
+  Gtk::Box* list = find_list_box(window);
+  CHECK(list != nullptr);
+  auto rows = rows_in_list(window);
+  CHECK(rows.size() == 4);
+  if (rows.size() == 4) {
+    CHECK(row_names(rows) == std::vector<std::string>({"Alpha", "Mango", "Zebra", "LCOS System"}));
+    CHECK(inside_list_box(*rows.back()));
+    CHECK(inside_scrolled(*rows.back()));
+  }
+  int outside = 0;
+  walk(window, [&](Gtk::Widget& widget) {
+    if (dynamic_cast<lundukeabout::AppRow*>(&widget) && !inside_list_box(widget)) ++outside;
+  });
+  CHECK(outside == 0);
+
+  window.set_app_sort(lundukeabout::AppSortColumn::Name, lundukeabout::AppSortDirection::Ascending);
+  drain();
+  CHECK(row_names(rows_in_list(window)) ==
+        std::vector<std::string>({"Alpha", "Mango", "Zebra", "LCOS System"}));
+
+  window.set_app_sort(lundukeabout::AppSortColumn::Name, lundukeabout::AppSortDirection::Descending);
+  drain();
+  CHECK(row_names(rows_in_list(window)) ==
+        std::vector<std::string>({"Zebra", "Mango", "Alpha", "LCOS System"}));
+
+  window.set_app_sort(lundukeabout::AppSortColumn::Ram, lundukeabout::AppSortDirection::Ascending);
+  drain();
+  CHECK(row_names(rows_in_list(window)) ==
+        std::vector<std::string>({"Zebra", "Mango", "Alpha", "LCOS System"}));
+
+  window.set_app_sort(lundukeabout::AppSortColumn::Ram, lundukeabout::AppSortDirection::Descending);
+  drain();
+  CHECK(row_names(rows_in_list(window)) ==
+        std::vector<std::string>({"Alpha", "Mango", "Zebra", "LCOS System"}));
+
+  // RAM refresh: largest LCOS System figure, then the smallest. The row
+  // stays last even when the list is ordered by RAM.
+  window.set_row_rss("LCOS System", 999999, true);
+  drain();
+  CHECK(row_names(rows_in_list(window)).back() == "LCOS System");
+  window.set_app_sort(lundukeabout::AppSortColumn::Ram, lundukeabout::AppSortDirection::Descending);
+  drain();
+  {
+    const auto names = row_names(rows_in_list(window));
+    CHECK(names == std::vector<std::string>({"Alpha", "Mango", "Zebra", "LCOS System"}));
+    CHECK(names.back() == "LCOS System");
+  }
+  window.set_row_rss("LCOS System", 0, true);
+  drain();
+  CHECK(row_names(rows_in_list(window)).back() == "LCOS System");
+  window.set_app_sort(lundukeabout::AppSortColumn::Ram, lundukeabout::AppSortDirection::Ascending);
+  drain();
+  {
+    const auto names = row_names(rows_in_list(window));
+    CHECK(names == std::vector<std::string>({"Zebra", "Mango", "Alpha", "LCOS System"}));
+    CHECK(names.back() == "LCOS System");
+  }
+
+  rows = rows_in_list(window);
+  lundukeabout::AppRow* system_row = nullptr;
+  lundukeabout::AppRow* alpha = nullptr;
+  for (auto* row : rows) {
+    if (row->entry().name == "LCOS System") system_row = row;
+    if (row->entry().name == "Alpha") alpha = row;
+  }
+  CHECK(system_row != nullptr);
+  CHECK(alpha != nullptr);
+  if (system_row && alpha && rows.size() >= 2) {
+    alpha->grab_focus();
+    drain();
+    CHECK(alpha->is_focus());
+    g_signal_emit_by_name(window.gobj(), "move-focus", GTK_DIR_TAB_FORWARD);
+    drain();
+    bool reached_system = system_row->is_focus();
+    for (int i = 0; i < 6 && !reached_system; ++i) {
+      g_signal_emit_by_name(window.gobj(), "move-focus", GTK_DIR_TAB_FORWARD);
+      drain();
+      reached_system = system_row->is_focus();
+    }
+    CHECK(reached_system);
+    CHECK(system_row->is_focus());
+    g_signal_emit_by_name(window.gobj(), "move-focus", GTK_DIR_TAB_BACKWARD);
+    drain();
+    CHECK(!system_row->is_focus());
+
+    int hits = 0;
+    system_row->set_force_close_handler([&](const lundukeabout::AppEntry&) { ++hits; });
+    refuse_force_close(*system_row, hits);
+
+    int app_hits = 0;
+    alpha->set_force_close_handler([&](const lundukeabout::AppEntry&) { ++app_hits; });
+    alpha->grab_focus();
+    drain();
+    send_key(*alpha, GDK_KEY_Return, 0);
+    drain();
+    CHECK(alpha->menu_posted());
+    CHECK(alpha->force_close_available());
+    CHECK(alpha->force_close_item_sensitive());
+    alpha->activate_force_close_item();
+    CHECK(app_hits == 1);
+    alpha->dismiss_menu();
+  }
+
+  window.hide();
+  drain();
+}
+
 void test_scrollbar_thumb() {
   lundukeabout::MainWindow styled;
   drain();
@@ -939,6 +1174,7 @@ int main(int argc, char** argv) {
   test_distinguish_column();
   test_row_focus_visible();
   test_window_layout();
+  test_lcos_system_row();
   test_cpu_gpu_text_visible();
   test_return_activates_row();
   test_scrollbar_thumb();

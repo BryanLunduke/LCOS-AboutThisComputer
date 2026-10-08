@@ -20,6 +20,11 @@ public:
 
   using ForceCloseHandler = std::function<void(const AppEntry&)>;
   void set_force_close_handler(ForceCloseHandler handler);
+  // False for LCOS System and every other row that cannot be signalled.
+  bool force_close_available() const;
+  bool force_close_item_sensitive() const;
+  void dismiss_menu();
+  void activate_force_close_item();
 
 protected:
   bool on_draw(const Cairo::RefPtr<Cairo::Context>& cr) override;
