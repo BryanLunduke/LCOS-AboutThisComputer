@@ -938,4 +938,43 @@ long process_anon_charge_kb(bool have_rollup, const SmapsRollup& rollup, long rs
   return rss_anon_kb;
 }
 
+std::vector<std::string> parse_supporter_entries(std::istream& in) {
+  std::vector<std::string> entries;
+  std::string line;
+  while (std::getline(in, line)) {
+    if (!line.empty() && line.back() == '\r') line.pop_back();
+    if (!line.empty() && line[0] == '#') continue;
+    bool blank = true;
+    for (char c : line) {
+      if (c != ' ' && c != '\t') {
+        blank = false;
+        break;
+      }
+    }
+    if (blank) continue;
+    entries.push_back(line);
+  }
+  return entries;
+}
+
+std::string join_supporter_entries(const std::vector<std::string>& entries) {
+  std::string names;
+  for (const std::string& entry : entries) {
+    if (!names.empty()) names += ", ";
+    names += entry;
+  }
+  return names;
+}
+
+std::vector<std::string> builtin_supporter_entries() {
+  return {
+      "\"Fuzzy\"",
+      "Steve Rockefeller",
+      "Steven P.",
+      "Chris Hammond",
+      "Mike Beasley",
+      "Jack Beckman",
+  };
+}
+
 }  // namespace lundukeabout

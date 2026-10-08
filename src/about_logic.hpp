@@ -340,4 +340,14 @@ ForceClosePrompt force_close_prompt(const std::string& row_name, const std::stri
                                     pid_t pid, const std::string& window_class,
                                     bool window_still_there);
 
+// One supporter per non-empty, non-comment line. A leading # is a comment.
+// Blank lines are skipped. The About header uses this same read.
+std::vector<std::string> parse_supporter_entries(std::istream& in);
+
+// Comma-space join. Each entry keeps its own punctuation.
+std::string join_supporter_entries(const std::vector<std::string>& entries);
+
+// Used when supporters.txt is missing or empty. Must match data/supporters.txt.
+std::vector<std::string> builtin_supporter_entries();
+
 }  // namespace lundukeabout
