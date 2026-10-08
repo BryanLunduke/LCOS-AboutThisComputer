@@ -86,6 +86,28 @@ void prune_icon_cache(const std::unordered_set<unsigned long>& live) {
   }
 }
 
+bool is_toplevel_kind(WindowKind kind) {
+  // A window the user can treat as belonging to the process. Menus, tooltips,
+  // splashes, and notifications do not keep a Thunar daemon on the app list.
+  return kind == WindowKind::Normal || kind == WindowKind::DesktopOrDock ||
+         kind == WindowKind::SkipTaskbar || kind == WindowKind::Utility;
+}
+
+std::string read_proc_cmdline(pid_t pid) {
+  if (pid <= 1) return {};
+  std::ifstream in("/proc/" + std::to_string(pid) + "/cmdline", std::ios::binary);
+  if (!in) return {};
+  std::string data;
+  char buf[4096];
+  while (data.size() < (1u << 20)) {
+    in.read(buf, sizeof(buf));
+    const auto n = in.gcount();
+    if (n <= 0) break;
+    data.append(buf, static_cast<size_t>(n));
+  }
+  return data;
+}
+
 long parse_status_number(const std::string& line) {
   const auto pos = line.find_first_of("0123456789");
   if (pos == std::string::npos) return 0;
@@ -779,9 +801,38 @@ void AppListRefresh::Impl::assemble() {
   for (const auto& g : groups) {
     if (g.has_pid) row_pids.insert(g.pid);
   }
+  std::unordered_map<pid_t, bool> toplevel_pid;
+  std::unordered_map<unsigned long, bool> toplevel_xid;
+  for (const auto& fact : facts_) {
+    if (!is_toplevel_kind(fact.kind)) continue;
+    if (fact.has_pid && fact.pid > 1) toplevel_pid[fact.pid] = true;
+    else toplevel_xid[fact.xid] = true;
+  }
+  std::unordered_map<pid_t, std::string> cmdlines;
   entries_.clear();
   entries_.reserve(groups.size());
   for (const auto& g : groups) {
+    // Session plumbing stays out of the list. Its pid remains in row_pids
+    // so a parent application does not absorb that memory; nothing subtracts
+    // it, and LCOS System keeps it.
+    ProcessView view;
+    view.comm = g.comm;
+    view.wm_res_class = g.class_name;
+    view.owns_toplevel_window = false;
+    if (g.has_pid && g.pid > 1) {
+      view.owns_toplevel_window = toplevel_pid[g.pid];
+      const auto have = cmdlines.find(g.pid);
+      if (have == cmdlines.end()) {
+        view.cmdline = read_proc_cmdline(g.pid);
+        cmdlines.emplace(g.pid, view.cmdline);
+      } else {
+        view.cmdline = have->second;
+      }
+    } else {
+      view.owns_toplevel_window = toplevel_xid[g.xid];
+    }
+    if (classify_process(view) == ProcessClass::System) continue;
+
     AppEntry entry;
     entry.name = g.name;
     entry.tooltip = g.tooltip;

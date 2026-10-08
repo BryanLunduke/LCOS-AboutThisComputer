@@ -72,6 +72,16 @@ public:
   MainWindow();
   ~MainWindow() override;
 
+  // Stop the 3s probe so a caller can place rows and read them back.
+  void freeze_refresh();
+  // Name or RAM, either direction. LCOS System stays the last row.
+  void set_app_sort(AppSortColumn column, AppSortDirection direction);
+  // Replace the list. `system` is pinned last. Freezes the live probe.
+  void replace_listed_apps(std::vector<AppEntry> apps, AppEntry system);
+  // Update one row's RAM and keep LCOS System last without reshuffling
+  // the other rows. Pair with set_app_sort to re-sort on the new values.
+  void set_row_rss(const std::string& name, long rss_kb, bool known);
+
 private:
   void apply_platinum_css();
   void load_logo();
@@ -84,7 +94,6 @@ private:
   void arm_force_close_refresh();
   bool signal_pinned_pid(pid_t pid, unsigned long long expected_start, bool other_row,
                          bool require_comm, const std::string& expected_comm, std::string& why);
-  void ensure_system_row(const AppEntry& entry);
   void capture_scroll_anchor();
   void finish_scroll_restore();
   bool on_refresh_tick();
@@ -109,6 +118,8 @@ private:
   };
   AppEntry make_system_entry(long system_kb, const std::string& tooltip);
   void sync_app_rows(const std::vector<AppEntry>& apps, bool allow_structure);
+  void reorder_app_rows();
+  void pin_system_row_last();
 
   SystemInfo info_;
   Gtk::Box root_{Gtk::ORIENTATION_VERTICAL, 0};
@@ -126,13 +137,14 @@ private:
   Gtk::Label cpu_label_;
   Gtk::Label gpu_label_;
   MemoryBar ram_bar_;
-  // LCOS System stays here, under the RAM bar and outside the scroller.
-  Gtk::Box system_slot_{Gtk::ORIENTATION_VERTICAL, 0};
   Gtk::ScrolledWindow list_scroll_;
   Gtk::Box list_box_{Gtk::ORIENTATION_VERTICAL, 0};
   std::vector<AppListItem> app_rows_;
-  AppRow* system_row_ = nullptr;
   Glib::RefPtr<Gdk::Pixbuf> system_icon_;
+  AppSortColumn sort_column_ = AppSortColumn::Ram;
+  AppSortDirection sort_direction_ = AppSortDirection::Descending;
+  bool sort_dirty_ = false;
+  bool refresh_frozen_ = false;
   // Nested dialog: do not destroy rows while a Force Close menu callback
   // is still on the stack.
   int force_close_depth_ = 0;

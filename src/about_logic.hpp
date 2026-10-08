@@ -147,6 +147,69 @@ struct ClassHint {
 bool is_protected_identity(const ClassHint& wm, const std::string& comm,
                            std::string& reason);
 
+// Application versus desktop-session plumbing.
+//
+// The rule set lives in about_logic.cpp (kSystemNames, plus the panel-plugin
+// and libxfce4panel wrapper patterns, plus the Thunar daemon exception).
+// It looks at the process name and the command line, and at whether the
+// process owns a top-level window. A window title is never a name.
+//
+// comm, when set, is the process name. WM_CLASS is consulted only when comm
+// is empty, so a foreign class on Firefox does not hide Firefox. argv0's
+// basename is taken from cmdline (NUL-separated, as in /proc, or
+// whitespace-separated). A 15-byte comm still matches a longer binary.
+//
+// System processes are left out of the application list. Their anonymous
+// memory is not subtracted from physical used, so it stays in LCOS System.
+enum class ProcessClass { App, System };
+
+struct ProcessView {
+  std::string comm;
+  std::string cmdline;
+  // Ignored when comm is non-empty.
+  std::string wm_res_name;
+  std::string wm_res_class;
+  bool owns_toplevel_window = false;
+};
+
+ProcessClass classify_process(const ProcessView& process);
+
+struct SessionRamSample {
+  ProcessView process;
+  long rss_kb = 0;
+};
+
+// app_kb is what the list subtracts. system_kb is session plumbing.
+// lcos is physical used minus app_kb, so system_kb sits inside that total
+// instead of on its own row.
+struct SessionRamSplit {
+  long long app_kb = 0;
+  long long system_kb = 0;
+  SystemRemainder lcos;
+};
+
+SessionRamSplit split_session_ram(long used_kb, const std::vector<SessionRamSample>& samples);
+
+enum class AppSortColumn { Name, Ram };
+enum class AppSortDirection { Ascending, Descending };
+
+// One listed row. lcos_system (or the name "LCOS System") is pinned last
+// for every column and direction, whatever rss_kb is.
+struct OrderedRow {
+  std::string name;
+  long rss_kb = 0;
+  bool rss_known = false;
+  pid_t pid = 0;
+  unsigned long xid = 0;
+  bool lcos_system = false;
+};
+
+// Indices of `rows` in display order. Ties keep the smaller pid, then xid,
+// then the original index. Unknown RAM sorts below every known value.
+std::vector<size_t> order_app_row_indices(const std::vector<OrderedRow>& rows,
+                                          AppSortColumn column,
+                                          AppSortDirection direction);
+
 enum class WindowKind {
   Normal,
   SkipTaskbar,
@@ -202,7 +265,9 @@ struct GroupedApp {
 // prefers an active Normal window, then a Normal window with a title and an
 // icon. Splash, menu, tooltip, and notification windows are not rows.
 // A pid whose windows are only dock, desktop, utility, or skip-taskbar still
-// gets a row so its anonymous memory is subtracted from LCOS System.
+// gets a row so its anonymous memory is subtracted from LCOS System, unless
+// classify_process() calls that process session plumbing. Session plumbing
+// is not listed; its anonymous memory stays in LCOS System.
 // Protection comes from /proc comm, not from a foreign WM_CLASS.
 std::vector<GroupedApp> group_windows(const std::vector<WindowFact>& windows);
 

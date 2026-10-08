@@ -1,5 +1,12 @@
 # lunduke-about NOTES
 
+## v0.9-8
+
+- Debian revision only (0.9-7 → 0.9-8). Meson project version stays **0.9**.
+- LCOS System is the last row inside the application list under every sort (name or RAM, either direction). Force Close stays unavailable on it.
+- XFCE and desktop-session processes are not application rows. Their RAM stays in LCOS System. `Thunar --daemon` is hidden only when it has no window.
+- Supporters already list Steve Rockefeller second and Jack Beckman last (PR #13). The list is unchanged here.
+
 ## v0.9-7
 
 - Debian revision only (0.9-6 → 0.9-7). Meson project version stays **0.9**.

@@ -33,6 +33,8 @@ struct AppEntry {
   std::string distinguish;
   // Root and descendants whose anonymous charge is included in rss_kb.
   std::vector<ProcPin> kill_pins;
+  // The LCOS System remainder. Always the last list row. Not an application.
+  bool lcos_system = false;
 };
 
 // One refresh of the client list, performed in short slices so the GTK

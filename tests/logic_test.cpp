@@ -1887,6 +1887,214 @@ int main() {
     }
   }
 
+  // Session plumbing is system. Real applications stay applications.
+  // Each name is classified with and without a top-level window.
+  {
+    struct Fix {
+      const char* comm;
+      const char* cmdline;
+      ProcessClass expect;
+      bool both_ways;
+      bool window_override;
+      bool window;
+    };
+    const Fix fixture[] = {
+        {"xfce4-panel", "xfce4-panel", ProcessClass::System, true, false, false},
+        {"panel-6-systray-plugin", "panel-6-systray-plugin", ProcessClass::System, true, false, false},
+        {"panel-1-whiskermenu-plugin", "", ProcessClass::System, true, false, false},
+        {"panel-6-systray", "panel-6-systray", ProcessClass::System, true, false, false},
+        {"wrapper-2.0", "/usr/lib/xfce4/panel/wrapper-2.0", ProcessClass::System, true, false, false},
+        {"plugin-helper", "/usr/lib/x86_64-linux-gnu/libxfce4panel.so.3", ProcessClass::System, true,
+         false, false},
+        {"xfdesktop", "xfdesktop", ProcessClass::System, true, false, false},
+        {"xfwm4", "xfwm4", ProcessClass::System, true, false, false},
+        {"xfce4-session", "xfce4-session", ProcessClass::System, true, false, false},
+        {"xfsettingsd", "xfsettingsd", ProcessClass::System, true, false, false},
+        {"xfconfd", "xfconfd", ProcessClass::System, true, false, false},
+        {"xfce4-notifyd", "xfce4-notifyd", ProcessClass::System, true, false, false},
+        {"lightdm", "lightdm", ProcessClass::System, true, false, false},
+        {"lightdm-gtk-greeter", "lightdm-gtk-greeter", ProcessClass::System, true, false, false},
+        {"lightdm-gtk-gre", "lightdm-gtk-greeter", ProcessClass::System, true, false, false},
+        {"at-spi-bus-launcher", "at-spi-bus-launcher", ProcessClass::System, true, false, false},
+        {"at-spi-bus-lau", "at-spi-bus-launcher", ProcessClass::System, true, false, false},
+        {"at-spi2-registryd", "at-spi2-registryd", ProcessClass::System, true, false, false},
+        {"at-spi2-registr", "at-spi2-registryd", ProcessClass::System, true, false, false},
+        {"polkit-gnome-authentication-agent-1", "polkit-gnome-authentication-agent-1",
+         ProcessClass::System, true, false, false},
+        {"polkit-gnome-au", "polkit-gnome-authentication-agent-1", ProcessClass::System, true, false,
+         false},
+        {"xfce-polkit", "xfce-polkit", ProcessClass::System, true, false, false},
+        {"lxpolkit", "lxpolkit", ProcessClass::System, true, false, false},
+        {"xfce4-power-manager", "xfce4-power-manager", ProcessClass::System, true, false, false},
+        {"xfce4-power-man", "xfce4-power-manager", ProcessClass::System, true, false, false},
+        {"xfce4-screensaver", "xfce4-screensaver", ProcessClass::System, true, false, false},
+        {"xfce4-screensav", "xfce4-screensaver", ProcessClass::System, true, false, false},
+        {"light-locker", "light-locker", ProcessClass::System, true, false, false},
+        {"xiccd", "xiccd", ProcessClass::System, true, false, false},
+        {"gvfsd", "gvfsd", ProcessClass::System, true, false, false},
+        {"gvfsd-trash", "gvfsd-trash", ProcessClass::System, true, false, false},
+        {"gvfs-udisks2-volume-monitor", "gvfs-udisks2-volume-monitor", ProcessClass::System, true,
+         false, false},
+        {"gvfs-udisks2-vo", "gvfs-udisks2-volume-monitor", ProcessClass::System, true, false, false},
+        {"dbus-daemon", "dbus-daemon --session", ProcessClass::System, true, false, false},
+        {"dbus-broker", "dbus-broker", ProcessClass::System, true, false, false},
+        {"dbus-broker-launch", "dbus-broker-launch", ProcessClass::System, true, false, false},
+        {"pulseaudio", "pulseaudio", ProcessClass::System, true, false, false},
+        {"pipewire", "pipewire", ProcessClass::System, true, false, false},
+        {"pipewire-pulse", "pipewire-pulse", ProcessClass::System, true, false, false},
+        {"wireplumber", "wireplumber", ProcessClass::System, true, false, false},
+        {"nm-applet", "nm-applet", ProcessClass::System, true, false, false},
+        {"blueman-applet", "blueman-applet", ProcessClass::System, true, false, false},
+        {"xdg-desktop-portal", "xdg-desktop-portal", ProcessClass::System, true, false, false},
+        {"xdg-desktop-portal-gtk", "xdg-desktop-portal-gtk", ProcessClass::System, true, false, false},
+        {"xdg-desktop-por", "xdg-desktop-portal", ProcessClass::System, true, false, false},
+        {"Thunar", "Thunar --daemon", ProcessClass::System, false, true, false},
+        {"thunar", "thunar --daemon", ProcessClass::App, false, true, true},
+        {"thunar", "thunar /home/user", ProcessClass::App, true, false, false},
+        {"Thunar", "Thunar", ProcessClass::App, true, false, false},
+        {"xfce4-terminal", "xfce4-terminal", ProcessClass::App, true, false, false},
+        {"mousepad", "mousepad", ProcessClass::App, true, false, false},
+        {"brave", "brave", ProcessClass::App, true, false, false},
+        {"brave-browser", "brave-browser", ProcessClass::App, true, false, false},
+        {"lunduke-about", "lunduke-about", ProcessClass::App, true, false, false},
+        {"lunduke-paint", "lunduke-paint", ProcessClass::App, true, false, false},
+        {"lunduke-edit", "lunduke-edit", ProcessClass::App, true, false, false},
+        {"Edit", "Edit", ProcessClass::App, true, false, false},
+        {"Paint", "Paint", ProcessClass::App, true, false, false},
+        {"firefox", "firefox", ProcessClass::App, true, false, false},
+        {"xterm", "xterm", ProcessClass::App, true, false, false},
+    };
+    for (const auto& row : fixture) {
+      const bool windows[2] = {false, true};
+      const int nwin = row.both_ways ? 2 : 1;
+      for (int i = 0; i < nwin; ++i) {
+        ProcessView view;
+        view.comm = row.comm ? row.comm : "";
+        view.cmdline = row.cmdline ? row.cmdline : "";
+        view.owns_toplevel_window = row.both_ways ? windows[i] : row.window;
+        const ProcessClass got = classify_process(view);
+        if (got != row.expect) {
+          std::cerr << "classify comm=" << view.comm << " cmdline=[" << view.cmdline
+                    << "] window=" << view.owns_toplevel_window << " got="
+                    << (got == ProcessClass::System ? "system" : "app") << "\n";
+        }
+        CHECK(got == row.expect);
+      }
+    }
+    const std::string nul_daemon("Thunar\0--daemon", 15);
+    ProcessView daemon;
+    daemon.comm = "Thunar";
+    daemon.cmdline = nul_daemon;
+    daemon.owns_toplevel_window = false;
+    CHECK(classify_process(daemon) == ProcessClass::System);
+    daemon.owns_toplevel_window = true;
+    CHECK(classify_process(daemon) == ProcessClass::App);
+
+    ProcessView foreign;
+    foreign.comm = "firefox";
+    foreign.wm_res_class = "xfce4-panel";
+    foreign.owns_toplevel_window = true;
+    CHECK(classify_process(foreign) == ProcessClass::App);
+    foreign.owns_toplevel_window = false;
+    CHECK(classify_process(foreign) == ProcessClass::App);
+
+    ProcessView nameless_panel;
+    nameless_panel.wm_res_class = "xfdesktop";
+    nameless_panel.owns_toplevel_window = true;
+    CHECK(classify_process(nameless_panel) == ProcessClass::System);
+    nameless_panel.owns_toplevel_window = false;
+    CHECK(classify_process(nameless_panel) == ProcessClass::System);
+
+    ProcessView edit_doc;
+    edit_doc.comm = "mousepad";
+    edit_doc.cmdline = "mousepad /tmp/xfce4-panel-notes.txt";
+    edit_doc.owns_toplevel_window = true;
+    CHECK(classify_process(edit_doc) == ProcessClass::App);
+  }
+
+  // System-class RAM is part of the LCOS System total, not its own rows.
+  {
+    const long used = 10000;
+    std::vector<SessionRamSample> samples;
+    auto add = [&](const char* comm, const char* cmdline, bool window, long rss) {
+      SessionRamSample sample;
+      sample.process.comm = comm;
+      sample.process.cmdline = cmdline;
+      sample.process.owns_toplevel_window = window;
+      sample.rss_kb = rss;
+      samples.push_back(sample);
+    };
+    add("mousepad", "mousepad", true, 1500);
+    add("brave", "brave", true, 2500);
+    add("thunar", "thunar /home/user", true, 900);
+    add("xfce4-panel", "xfce4-panel", true, 800);
+    add("Thunar", "Thunar --daemon", false, 200);
+    add("xfdesktop", "xfdesktop", true, 300);
+    add("dbus-daemon", "dbus-daemon --session", false, 100);
+    const SessionRamSplit split = split_session_ram(used, samples);
+    CHECK(split.app_kb == 1500 + 2500 + 900);
+    CHECK(split.system_kb == 800 + 200 + 300 + 100);
+    CHECK(split.lcos.shown_kb == used - split.app_kb);
+    const SystemRemainder if_listed =
+        system_remainder_kb(used, split.app_kb + split.system_kb);
+    CHECK(split.lcos.shown_kb == if_listed.shown_kb + split.system_kb);
+    CHECK(split.lcos.clamped == false);
+  }
+
+  // LCOS System stays last for name and RAM, both directions, including when
+  // its RAM is the largest value and when it is the smallest.
+  {
+    std::vector<OrderedRow> rows(4);
+    rows[0].name = "Mango";
+    rows[0].pid = 11;
+    rows[0].rss_kb = 50;
+    rows[0].rss_known = true;
+    rows[1].name = "Alpha";
+    rows[1].pid = 10;
+    rows[1].rss_kb = 100;
+    rows[1].rss_known = true;
+    rows[2].name = "LCOS System";
+    rows[2].lcos_system = true;
+    rows[2].rss_kb = 1;
+    rows[2].rss_known = true;
+    rows[3].name = "Zebra";
+    rows[3].pid = 12;
+    rows[3].rss_kb = 10;
+    rows[3].rss_known = true;
+
+    auto names_of = [&](AppSortColumn column, AppSortDirection direction) {
+      std::vector<std::string> names;
+      for (size_t index : order_app_row_indices(rows, column, direction)) {
+        names.push_back(rows[index].name);
+      }
+      return names;
+    };
+    const std::vector<std::string> name_asc = names_of(AppSortColumn::Name,
+                                                       AppSortDirection::Ascending);
+    const std::vector<std::string> name_desc = names_of(AppSortColumn::Name,
+                                                        AppSortDirection::Descending);
+    const std::vector<std::string> ram_asc =
+        names_of(AppSortColumn::Ram, AppSortDirection::Ascending);
+    const std::vector<std::string> ram_desc =
+        names_of(AppSortColumn::Ram, AppSortDirection::Descending);
+    CHECK(name_asc == std::vector<std::string>({"Alpha", "Mango", "Zebra", "LCOS System"}));
+    CHECK(name_desc == std::vector<std::string>({"Zebra", "Mango", "Alpha", "LCOS System"}));
+    CHECK(ram_asc == std::vector<std::string>({"Zebra", "Mango", "Alpha", "LCOS System"}));
+    CHECK(ram_desc == std::vector<std::string>({"Alpha", "Mango", "Zebra", "LCOS System"}));
+
+    rows[2].rss_kb = 999999;
+    const std::vector<std::string> huge =
+        names_of(AppSortColumn::Ram, AppSortDirection::Descending);
+    CHECK(huge.back() == "LCOS System");
+    CHECK(huge.front() == "Alpha");
+
+    rows[2].rss_kb = 0;
+    const std::vector<std::string> tiny =
+        names_of(AppSortColumn::Ram, AppSortDirection::Ascending);
+    CHECK(tiny.back() == "LCOS System");
+    CHECK(tiny.front() == "Zebra");
+  }
+
   // Supporters: Steve Rockefeller is inserted at index 1. The previous
   // second entry, Steven P., moves to index 2. Jack Beckman is last.
   // The list had 4 names and grows by exactly 2. The file and the
