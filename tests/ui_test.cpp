@@ -155,7 +155,9 @@ void test_menu_key() {
   window.show_all();
   drain();
   const std::string tip = row->get_tooltip_text();
-  CHECK(tip.find("Right-click or press the Menu key to Force Close") != std::string::npos);
+  CHECK(tip.find("Right-click or press the Menu key or Shift+F10 to Force Close") !=
+        std::string::npos);
+  CHECK(tip.find("Shift+F10") != std::string::npos);
   CHECK(tip.find("Doc") != std::string::npos);
   CHECK(row->get_can_focus());
   // Focus inside the window. A display with no window manager never reports
@@ -406,7 +408,9 @@ void test_distinguish_column() {
   CHECK(tip_a.find("pid 6804") != std::string::npos);
   CHECK(tip_b.find("pid 6808") != std::string::npos);
   CHECK(tip_a.find(long_name) != std::string::npos);
-  CHECK(tip_a.find("Right-click or press the Menu key to Force Close") != std::string::npos);
+  CHECK(tip_a.find("Right-click or press the Menu key or Shift+F10 to Force Close") !=
+        std::string::npos);
+  CHECK(tip_a.find("Shift+F10") != std::string::npos);
   CHECK(tip_a != tip_b);
   window.hide();
   drain();
@@ -622,6 +626,233 @@ void test_window_layout() {
   drain();
 }
 
+bool label_shows_all(Gtk::Label& label) {
+  if (label.get_ellipsize() != Pango::ELLIPSIZE_NONE) return false;
+  if (!label.get_line_wrap()) return false;
+  auto layout = label.get_layout();
+  if (!layout) return false;
+  if (layout->is_ellipsized()) return false;
+  int text_w = 0;
+  int text_h = 0;
+  layout->get_pixel_size(text_w, text_h);
+  if (label.get_allocated_width() < 8 || label.get_allocated_height() < 8) return false;
+  if (text_w > label.get_allocated_width() + 1) return false;
+  if (text_h > label.get_allocated_height() + 1) return false;
+  return true;
+}
+
+void test_cpu_gpu_text_visible() {
+  const std::string cpu =
+      "CPU:  Intel(R) Xeon(R) Processor (4 cores, 4 threads)";
+  const std::string gpu =
+      "GPU:  Intel Corporation TigerLake-LP GT2 [Iris Xe Graphics]; "
+      "Advanced Micro Devices, Inc. [AMD/ATI] Ellesmere "
+      "[Radeon RX 470/480/570/570X/580/580X/590]";
+  Gtk::Window window;
+  window.set_default_size(520, 360);
+  window.set_size_request(520, 360);
+  Gtk::Box cols(Gtk::ORIENTATION_HORIZONTAL, 24);
+  cols.set_margin_start(12);
+  cols.set_margin_end(12);
+  cols.set_margin_top(10);
+  Gtk::Label os;
+  lundukeabout::set_info_label(os, "OS Version:  LCOS 0.9");
+  Gtk::Box right(Gtk::ORIENTATION_VERTICAL, 2);
+  right.set_halign(Gtk::ALIGN_START);
+  Gtk::Label cpu_label;
+  Gtk::Label gpu_label;
+  lundukeabout::set_wrapping_info_label(cpu_label, cpu);
+  lundukeabout::set_wrapping_info_label(gpu_label, gpu);
+  right.pack_start(cpu_label, Gtk::PACK_SHRINK);
+  right.pack_start(gpu_label, Gtk::PACK_SHRINK);
+  cols.pack_start(os, Gtk::PACK_EXPAND_WIDGET);
+  cols.pack_start(right, Gtk::PACK_EXPAND_WIDGET);
+  window.add(cols);
+  window.show_all();
+  drain();
+  window.resize(520, 360);
+  drain();
+
+  CHECK(cpu_label.get_text().find("(4 cores, 4 threads)") != std::string::npos);
+  CHECK(gpu_label.get_text().find("Ellesmere") != std::string::npos);
+  CHECK(gpu_label.get_text().find("Iris Xe") != std::string::npos);
+  CHECK(cpu_label.get_text().find('\n') == std::string::npos);
+  CHECK(gpu_label.get_text().find('\n') != std::string::npos);
+  CHECK(label_shows_all(cpu_label));
+  CHECK(label_shows_all(gpu_label));
+  CHECK(cpu_label.get_tooltip_text() == cpu);
+  CHECK(gpu_label.get_tooltip_text() == gpu);
+  int min_w = 0;
+  int nat_w = 0;
+  window.get_preferred_width(min_w, nat_w);
+  CHECK(min_w <= 520);
+  CHECK(window.get_allocated_width() <= 560);
+
+  lundukeabout::MainWindow about;
+  drain();
+  bool saw_cpu = false;
+  walk(about, [&](Gtk::Widget& widget) {
+    auto* label = dynamic_cast<Gtk::Label*>(&widget);
+    if (!label) return;
+    const std::string text = label->get_text();
+    if (text.rfind("CPU:", 0) != 0) return;
+    saw_cpu = true;
+    CHECK(label->get_ellipsize() == Pango::ELLIPSIZE_NONE);
+    CHECK(label->get_line_wrap());
+    CHECK(text.find("cores") != std::string::npos);
+    CHECK(text.find("threads") != std::string::npos);
+    CHECK(label_shows_all(*label));
+  });
+  CHECK(saw_cpu);
+  int about_min_w = 0;
+  int about_nat_w = 0;
+  int about_min_h = 0;
+  int about_nat_h = 0;
+  about.get_preferred_width(about_min_w, about_nat_w);
+  about.get_preferred_height(about_min_h, about_nat_h);
+  CHECK(about_min_w <= 520);
+  CHECK(about_min_h <= 360);
+  CHECK(about.get_allocated_width() <= 560);
+
+  window.hide();
+  about.hide();
+  drain();
+}
+
+void test_return_activates_row() {
+  lundukeabout::AppEntry first = closable_entry("Keeper", 43);
+  lundukeabout::AppEntry second = closable_entry("GhostWin", 44);
+  Gtk::Window window;
+  Gtk::Box box(Gtk::ORIENTATION_VERTICAL, 0);
+  auto* row_a = Gtk::manage(new lundukeabout::AppRow(first));
+  auto* row_b = Gtk::manage(new lundukeabout::AppRow(second));
+  box.pack_start(*row_a, Gtk::PACK_SHRINK);
+  box.pack_start(*row_b, Gtk::PACK_SHRINK);
+  window.add(box);
+  window.show_all();
+  drain();
+  row_a->grab_focus();
+  drain();
+  CHECK(row_a->is_focus());
+  CHECK(row_a->get_tooltip_text().find("Shift+F10") != std::string::npos);
+  CHECK(row_a->get_tooltip_text().find("Menu key") != std::string::npos);
+
+  send_key(*row_b, GDK_KEY_Return, 0);
+  drain();
+  CHECK(!row_b->menu_posted());
+  CHECK(!row_a->menu_posted());
+
+  send_key(*row_a, GDK_KEY_Return, 0);
+  drain();
+  CHECK(row_a->menu_posted());
+  CHECK(!row_b->menu_posted());
+  window.hide();
+  drain();
+
+  Gtk::Window pad_window;
+  Gtk::Box pad_box(Gtk::ORIENTATION_VERTICAL, 0);
+  auto* pad = Gtk::manage(new lundukeabout::AppRow(first));
+  pad_box.pack_start(*pad, Gtk::PACK_SHRINK);
+  pad_window.add(pad_box);
+  pad_window.show_all();
+  drain();
+  pad->grab_focus();
+  drain();
+  send_key(*pad, GDK_KEY_KP_Enter, 0);
+  drain();
+  CHECK(pad->menu_posted());
+  pad_window.hide();
+  drain();
+}
+
+void test_scrollbar_thumb() {
+  lundukeabout::MainWindow styled;
+  drain();
+  Gtk::Window window;
+  window.set_default_size(220, 90);
+  Gtk::ScrolledWindow scroll;
+  scroll.set_policy(Gtk::POLICY_NEVER, Gtk::POLICY_ALWAYS);
+  scroll.set_overlay_scrolling(false);
+  scroll.get_style_context()->add_class("platinum-scroll");
+  scroll.set_hexpand(true);
+  scroll.set_vexpand(true);
+  Gtk::Box box(Gtk::ORIENTATION_VERTICAL, 0);
+  for (int i = 0; i < 30; ++i) {
+    auto* label = Gtk::manage(new Gtk::Label("Application row " + std::to_string(i)));
+    label->set_size_request(-1, 22);
+    box.pack_start(*label, Gtk::PACK_SHRINK);
+  }
+  scroll.add(box);
+  window.add(scroll);
+  window.show_all();
+  drain();
+  window.resize(220, 90);
+  drain();
+
+  Gtk::Scrollbar* bar = scroll.get_vscrollbar();
+  if (!bar) std::cerr << "vscrollbar is null\n";
+  CHECK(bar != nullptr);
+  if (bar) bar->get_style_context()->add_class("platinum-scroll");
+  drain();
+  CHECK(scroll.get_style_context()->has_class("platinum-scroll"));
+  if (!bar) {
+    window.hide();
+    styled.hide();
+    drain();
+    return;
+  }
+  CHECK(bar->get_style_context()->has_class("platinum-scroll"));
+  for (int i = 0; i < 10 && bar->get_allocated_width() < 14; ++i) {
+    drain();
+    g_usleep(20000);
+  }
+  const int width = bar->get_allocated_width();
+  const int height = bar->get_allocated_height();
+  if (width < 14) std::cerr << "scrollbar width " << width << "\n";
+  CHECK(width >= 14);
+  CHECK(height > 20);
+
+  int origin_x = 0;
+  int origin_y = 0;
+  const bool placed = bar->translate_coordinates(window, 0, 0, origin_x, origin_y);
+  CHECK(placed);
+  int blue = 0;
+  int sampled = 0;
+  if (placed && window.get_window() && width > 0 && height > 0) {
+    settle_draw(*bar);
+    Glib::RefPtr<Gdk::Pixbuf> pix;
+    try {
+      pix = Gdk::Pixbuf::create(window.get_window(), origin_x, origin_y, width, height);
+    } catch (const Glib::Error& err) {
+      std::cerr << "scrollbar capture: " << err.what() << "\n";
+    }
+    if (pix && pix->get_n_channels() >= 3) {
+      const int n = pix->get_n_channels();
+      const int stride = pix->get_rowstride();
+      const guint8* pixels = pix->get_pixels();
+      for (int y = 0; y < pix->get_height(); ++y) {
+        for (int x = 0; x < pix->get_width(); ++x) {
+          const guint8* p = pixels + y * stride + x * n;
+          ++sampled;
+          const int r = p[0];
+          const int g = p[1];
+          const int b = p[2];
+          if (b > 150 && b > r + 30 && b > g + 20 && r < 160) ++blue;
+        }
+      }
+    }
+  }
+  if (blue < 20) {
+    std::cerr << "scrollbar blue pixels " << blue << " of " << sampled << " width " << width
+              << "\n";
+  }
+  CHECK(blue >= 20);
+
+  window.hide();
+  styled.hide();
+  drain();
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -637,6 +868,9 @@ int main(int argc, char** argv) {
   test_distinguish_column();
   test_row_focus_visible();
   test_window_layout();
+  test_cpu_gpu_text_visible();
+  test_return_activates_row();
+  test_scrollbar_thumb();
   if (g_failures != 0) {
     std::cerr << g_failures << " failure(s)\n";
     return 1;

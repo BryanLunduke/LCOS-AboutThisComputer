@@ -22,8 +22,17 @@
 #include <cctype>
 #include <cerrno>
 #include <climits>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
+#include <chrono>
+#include <utility>
 #include <fcntl.h>
+#include <poll.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
 #include <sys/socket.h>
+#include <sys/un.h>
 #include <unistd.h>
 
 namespace lundukeabout {
@@ -474,8 +483,10 @@ XPeerCred x_peer_cred_from_fd(int fd) {
     out.supported = !(err == ENOTSOCK || err == ENOPROTOOPT || err == EOPNOTSUPP);
     return out;
   }
-  out.supported = true;
+  // A TCP connection can succeed and still report pid 0 / uid -1. That
+  // does not identify a peer; callers fall through to the display spec.
   if (static_cast<size_t>(len) < sizeof(cred) || cred.pid <= 0) return out;
+  out.supported = true;
   out.have_pid = true;
   out.pid = static_cast<pid_t>(cred.pid);
   out.uid = cred.uid;
@@ -690,9 +701,451 @@ std::string server_comm_for_display(int display, const std::vector<XListenSocket
 
 namespace {
 
-// Proc-fd walk. Used only when SO_PEERCRED does not apply (local TCP) or
-// the unix display could not be opened. A root server's fd directory is
-// not readable; that case is handled by the peer-credential path instead.
+bool display_server_comm(const std::string& comm) {
+  return comm == "Xvfb" || comm == "Xorg" || comm == "X" || comm == "Xtigervnc" ||
+         comm == "Xvnc" || comm == "Xephyr" || comm == "Xwayland" || comm == "Xnest" ||
+         comm == "Xdmx" || comm == "Xpra";
+}
+
+}  // namespace
+
+std::vector<TcpListenEntry> parse_proc_net_tcp(std::istream& in) {
+  std::vector<TcpListenEntry> out;
+  std::string line;
+  while (std::getline(in, line)) {
+    if (!line.empty() && line.back() == '\r') line.pop_back();
+    if (line.find("local_address") != std::string::npos) continue;
+    std::istringstream iss(line);
+    std::string sl, local, remote, state, txrx, tr, retr, uid_s, timeout_s, inode_s;
+    if (!(iss >> sl >> local >> remote >> state >> txrx >> tr >> retr >> uid_s >> timeout_s >>
+          inode_s)) {
+      continue;
+    }
+    const auto colon = local.rfind(':');
+    if (colon == std::string::npos || colon + 1 >= local.size()) continue;
+    char* end = nullptr;
+    const unsigned long port = std::strtoul(local.c_str() + colon + 1, &end, 16);
+    if (end == local.c_str() + colon + 1 || port > 65535ul) continue;
+    end = nullptr;
+    const unsigned long st = std::strtoul(state.c_str(), &end, 16);
+    if (end == state.c_str()) continue;
+    end = nullptr;
+    const unsigned long uid = std::strtoul(uid_s.c_str(), &end, 10);
+    if (end == uid_s.c_str()) continue;
+    end = nullptr;
+    const unsigned long inode = std::strtoul(inode_s.c_str(), &end, 10);
+    if (end == inode_s.c_str()) continue;
+    TcpListenEntry entry;
+    entry.port = static_cast<unsigned>(port);
+    entry.inode = inode;
+    entry.uid = static_cast<uid_t>(uid);
+    entry.listening = st == 0x0Aul;
+    out.push_back(entry);
+  }
+  return out;
+}
+
+std::string comm_owning_tcp_listeners(const std::vector<TcpListenEntry>& listeners,
+                                     const std::vector<ProcFdRecord>& procs) {
+  std::unordered_set<unsigned long> inodes;
+  std::unordered_set<uid_t> uids;
+  for (const TcpListenEntry& entry : listeners) {
+    if (!entry.listening || entry.inode == 0) continue;
+    inodes.insert(entry.inode);
+    uids.insert(entry.uid);
+  }
+  if (inodes.empty()) return {};
+
+  const ProcFdRecord* inode_hit = nullptr;
+  for (const ProcFdRecord& proc : procs) {
+    if (!proc.fd_dir_readable || proc.pid <= 0 || proc.comm.empty()) continue;
+    bool holds = false;
+    for (unsigned long inode : proc.socket_inodes) {
+      if (inodes.count(inode)) holds = true;
+    }
+    if (!holds) continue;
+    if (!inode_hit || proc.pid < inode_hit->pid) inode_hit = &proc;
+  }
+  if (inode_hit) return inode_hit->comm;
+
+  // Root (and any other uid whose fd directory we cannot read). The socket
+  // uid is the owner; comm names the process. A command line that contains
+  // this display beats a guess, and a display-server comm beats sudo.
+  const ProcFdRecord* cmdline_server = nullptr;
+  const ProcFdRecord* cmdline_any = nullptr;
+  const ProcFdRecord* only_server = nullptr;
+  int servers = 0;
+  const ProcFdRecord* only_proc = nullptr;
+  int uid_procs = 0;
+  for (const ProcFdRecord& proc : procs) {
+    if (proc.fd_dir_readable || proc.pid <= 0 || proc.comm.empty()) continue;
+    if (!uids.count(proc.uid)) continue;
+    ++uid_procs;
+    if (!only_proc || proc.pid < only_proc->pid) only_proc = &proc;
+    const bool server = display_server_comm(proc.comm);
+    if (server) {
+      ++servers;
+      if (!only_server || proc.pid < only_server->pid) only_server = &proc;
+    }
+    if (!proc.cmdline_matches_display) continue;
+    if (!cmdline_any || proc.pid < cmdline_any->pid) cmdline_any = &proc;
+    if (server && (!cmdline_server || proc.pid < cmdline_server->pid)) cmdline_server = &proc;
+  }
+  // A command line that names this display and a display-server comm is
+  // the listener. One display-server comm for this uid is next (sudo's
+  // argv also contains the display, and must not win). Then any command
+  // line match, then the only process with this uid.
+  if (cmdline_server) return cmdline_server->comm;
+  if (servers == 1 && only_server) return only_server->comm;
+  if (cmdline_any) return cmdline_any->comm;
+  if (uid_procs == 1 && only_proc) return only_proc->comm;
+  return {};
+}
+
+namespace {
+
+// How long a display may sit silent after accept before we stop waiting.
+// A healthy local server answers the connection setup in well under this.
+constexpr int kXReplyTimeoutMs = 400;
+
+int x11_tcp_port(int display) {
+  if (display < 0) return -1;
+  const long port = 6000L + static_cast<long>(display);
+  if (port <= 0 || port > 65535L) return -1;
+  return static_cast<int>(port);
+}
+
+bool xlib_uses_unix_socket(const XDisplayParsed& parsed) {
+  const std::string proto = lower_copy(parsed.protocol);
+  if (proto == "unix" || proto == "local") return true;
+  if (!proto.empty()) return false;
+  if (parsed.host.empty() || lower_copy(parsed.host) == "unix") return true;
+  return false;
+}
+
+enum class IoKind { Ok, TimedOut, Failed };
+
+IoKind connect_with_timeout(int fd, const sockaddr* addr, socklen_t len, int timeout_ms) {
+  const int flags = ::fcntl(fd, F_GETFL, 0);
+  if (flags < 0) return IoKind::Failed;
+  if (::fcntl(fd, F_SETFL, flags | O_NONBLOCK) != 0) return IoKind::Failed;
+  if (::connect(fd, addr, len) == 0) return IoKind::Ok;
+  if (errno != EINPROGRESS) return IoKind::Failed;
+  pollfd pfd{};
+  pfd.fd = fd;
+  pfd.events = POLLOUT;
+  const int pr = ::poll(&pfd, 1, timeout_ms);
+  if (pr < 0) return IoKind::Failed;
+  if (pr == 0) return IoKind::TimedOut;
+  int err = 0;
+  socklen_t elen = sizeof(err);
+  if (::getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &elen) != 0) return IoKind::Failed;
+  if (err == 0) return IoKind::Ok;
+  return IoKind::Failed;
+}
+
+IoKind send_all(int fd, const void* data, size_t n, int timeout_ms) {
+  const auto* bytes = static_cast<const unsigned char*>(data);
+  size_t off = 0;
+  const auto start = std::chrono::steady_clock::now();
+  while (off < n) {
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                             std::chrono::steady_clock::now() - start)
+                             .count();
+    if (elapsed >= timeout_ms) return IoKind::TimedOut;
+    pollfd pfd{};
+    pfd.fd = fd;
+    pfd.events = POLLOUT;
+    const int pr = ::poll(&pfd, 1, static_cast<int>(timeout_ms - elapsed));
+    if (pr < 0) {
+      if (errno == EINTR) continue;
+      return IoKind::Failed;
+    }
+    if (pr == 0) return IoKind::TimedOut;
+    const ssize_t wrote = ::send(fd, bytes + off, n - off, MSG_NOSIGNAL);
+    if (wrote < 0) {
+      if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) continue;
+      return IoKind::Failed;
+    }
+    if (wrote == 0) return IoKind::Failed;
+    off += static_cast<size_t>(wrote);
+  }
+  return IoKind::Ok;
+}
+
+IoKind read_exact(int fd, unsigned char* buf, size_t n, int timeout_ms) {
+  size_t off = 0;
+  const auto start = std::chrono::steady_clock::now();
+  while (off < n) {
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                             std::chrono::steady_clock::now() - start)
+                             .count();
+    if (elapsed >= timeout_ms) return IoKind::TimedOut;
+    pollfd pfd{};
+    pfd.fd = fd;
+    pfd.events = POLLIN;
+    const int pr = ::poll(&pfd, 1, static_cast<int>(timeout_ms - elapsed));
+    if (pr < 0) {
+      if (errno == EINTR) continue;
+      return IoKind::Failed;
+    }
+    if (pr == 0) return IoKind::TimedOut;
+    const ssize_t got = ::recv(fd, buf + off, n - off, 0);
+    if (got < 0) {
+      if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) continue;
+      return IoKind::Failed;
+    }
+    if (got == 0) return IoKind::Failed;
+    off += static_cast<size_t>(got);
+  }
+  return IoKind::Ok;
+}
+
+// Result of one connection attempt. Reset means the peer accepted and then
+// dropped us (Xvfb does that while it is still finishing the previous
+// client). TimedOut means it accepted and never spoke. Absent means nothing
+// was listening.
+enum class ProbeKind { Absent, Answered, TimedOut, Reset };
+
+struct ProbeResult {
+  ProbeKind kind = ProbeKind::Absent;
+  bool have_pid = false;
+  std::string comm;
+};
+
+int connect_unix_display(int display, bool abstract_ns, int timeout_ms, IoKind* kind) {
+  *kind = IoKind::Failed;
+  const std::string path = "/tmp/.X11-unix/X" + std::to_string(display);
+  if (path.size() + 1 >= sizeof(sockaddr_un::sun_path)) return -1;
+  const int fd = ::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+  if (fd < 0) return -1;
+  sockaddr_un addr{};
+  addr.sun_family = AF_UNIX;
+  socklen_t len = 0;
+  if (abstract_ns) {
+    addr.sun_path[0] = '\0';
+    std::memcpy(addr.sun_path + 1, path.data(), path.size());
+    len = static_cast<socklen_t>(offsetof(sockaddr_un, sun_path) + 1 + path.size());
+  } else {
+    std::memcpy(addr.sun_path, path.c_str(), path.size() + 1);
+    len = sizeof(addr);
+  }
+  *kind = connect_with_timeout(fd, reinterpret_cast<sockaddr*>(&addr), len, timeout_ms);
+  if (*kind != IoKind::Ok) {
+    ::close(fd);
+    return -1;
+  }
+  return fd;
+}
+
+int connect_ipv4_port(const std::string& host, int port, int timeout_ms, IoKind* kind) {
+  *kind = IoKind::Failed;
+  const int fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+  if (fd < 0) return -1;
+  sockaddr_in addr{};
+  addr.sin_family = AF_INET;
+  addr.sin_port = htons(static_cast<uint16_t>(port));
+  if (::inet_pton(AF_INET, host.c_str(), &addr.sin_addr) != 1) {
+    ::close(fd);
+    return -1;
+  }
+  *kind = connect_with_timeout(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr), timeout_ms);
+  if (*kind != IoKind::Ok) {
+    ::close(fd);
+    return -1;
+  }
+  return fd;
+}
+
+int connect_ipv6_loopback(int port, int timeout_ms, IoKind* kind) {
+  *kind = IoKind::Failed;
+  const int fd = ::socket(AF_INET6, SOCK_STREAM | SOCK_CLOEXEC, 0);
+  if (fd < 0) return -1;
+  sockaddr_in6 addr{};
+  addr.sin6_family = AF_INET6;
+  addr.sin6_port = htons(static_cast<uint16_t>(port));
+  if (::inet_pton(AF_INET6, "::1", &addr.sin6_addr) != 1) {
+    ::close(fd);
+    return -1;
+  }
+  *kind = connect_with_timeout(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr), timeout_ms);
+  if (*kind != IoKind::Ok) {
+    ::close(fd);
+    return -1;
+  }
+  return fd;
+}
+
+// Read the X11 setup reply and name the peer from this socket. The fd is
+// closed before return. A silent peer is TimedOut so the caller never
+// enters XOpenDisplay. The extra setup bytes are drained so the server is
+// not left mid-write, which is what makes the next connect get ECONNRESET.
+ProbeResult handshake_display(int fd, int timeout_ms) {
+  ProbeResult out;
+  unsigned char req[12] = {};
+  req[0] = 'l';
+  req[2] = 11;
+  const IoKind sent = send_all(fd, req, sizeof req, timeout_ms);
+  if (sent != IoKind::Ok) {
+    ::close(fd);
+    out.kind = sent == IoKind::TimedOut ? ProbeKind::TimedOut : ProbeKind::Reset;
+    return out;
+  }
+  unsigned char hdr[8];
+  const IoKind hdr_io = read_exact(fd, hdr, sizeof hdr, timeout_ms);
+  if (hdr_io != IoKind::Ok) {
+    ::close(fd);
+    out.kind = hdr_io == IoKind::TimedOut ? ProbeKind::TimedOut : ProbeKind::Reset;
+    return out;
+  }
+  const XPeerCred peer = x_peer_cred_from_fd(fd);
+  out.kind = ProbeKind::Answered;
+  out.have_pid = peer.have_pid;
+  out.comm = peer.comm;
+  const unsigned extra_units = static_cast<unsigned>(hdr[6]) | (static_cast<unsigned>(hdr[7]) << 8);
+  unsigned extra = extra_units * 4u;
+  if (extra > 65536u) extra = 65536u;
+  unsigned char buf[512];
+  while (extra > 0) {
+    const size_t chunk = extra < sizeof buf ? extra : sizeof buf;
+    if (read_exact(fd, buf, chunk, timeout_ms) != IoKind::Ok) break;
+    extra -= static_cast<unsigned>(chunk);
+  }
+  ::close(fd);
+  return out;
+}
+
+ProbeResult probe_one_fd(int fd, IoKind connect_kind) {
+  ProbeResult out;
+  if (connect_kind == IoKind::TimedOut) {
+    out.kind = ProbeKind::TimedOut;
+    return out;
+  }
+  if (fd < 0) return out;
+  return handshake_display(fd, kXReplyTimeoutMs);
+}
+
+// Prefer a definitive answer. A timeout on a socket that accepted is the
+// wedged server: do not dial the next address and wait again.
+ProbeResult probe_unix_once(int display, int timeout_ms) {
+  IoKind kind = IoKind::Failed;
+  const int path_fd = connect_unix_display(display, false, timeout_ms, &kind);
+  if (kind == IoKind::TimedOut) return probe_one_fd(-1, kind);
+  if (path_fd >= 0) return handshake_display(path_fd, timeout_ms);
+  const int abstract_fd = connect_unix_display(display, true, timeout_ms, &kind);
+  if (kind == IoKind::TimedOut) return probe_one_fd(-1, kind);
+  if (abstract_fd < 0) return {};
+  return handshake_display(abstract_fd, timeout_ms);
+}
+
+ProbeResult probe_tcp_once(const XDisplayParsed& parsed, int timeout_ms) {
+  const int port = x11_tcp_port(parsed.display);
+  if (port < 0) return {};
+  const std::string host = lower_copy(parsed.host);
+  auto finish = [&](int fd, IoKind kind) {
+    if (kind == IoKind::TimedOut) return probe_one_fd(-1, kind);
+    if (fd < 0) {
+      ProbeResult absent;
+      return absent;
+    }
+    return handshake_display(fd, timeout_ms);
+  };
+  if (host == "::1" || host == "0:0:0:0:0:0:0:1") {
+    IoKind kind = IoKind::Failed;
+    const int fd = connect_ipv6_loopback(port, timeout_ms, &kind);
+    return finish(fd, kind);
+  }
+  if (ipv4_loopback(host)) {
+    IoKind kind = IoKind::Failed;
+    const int fd = connect_ipv4_port(host, port, timeout_ms, &kind);
+    return finish(fd, kind);
+  }
+  // localhost: Xlib tries IPv6 first on this resolver order, then IPv4.
+  // A reset on one address must not be forgotten when the other address
+  // has no listener, or the retry loop would treat it as "nothing there".
+  bool saw_reset = false;
+  {
+    IoKind kind = IoKind::Failed;
+    const int fd = connect_ipv6_loopback(port, timeout_ms, &kind);
+    if (kind == IoKind::TimedOut) return probe_one_fd(-1, kind);
+    if (fd >= 0) {
+      ProbeResult answered = handshake_display(fd, timeout_ms);
+      if (answered.kind == ProbeKind::Answered || answered.kind == ProbeKind::TimedOut) return answered;
+      saw_reset = answered.kind == ProbeKind::Reset;
+    }
+  }
+  IoKind kind = IoKind::Failed;
+  const int fd = connect_ipv4_port("127.0.0.1", port, timeout_ms, &kind);
+  ProbeResult v4 = finish(fd, kind);
+  if (v4.kind == ProbeKind::Absent && saw_reset) v4.kind = ProbeKind::Reset;
+  return v4;
+}
+
+ProbeResult probe_display_once(const std::string& spec, int timeout_ms) {
+  const XDisplayParsed parsed = parse_x_display(spec);
+  if (!parsed.ok || parsed.transport == XDisplayTransport::Remote) return {};
+  if (xlib_uses_unix_socket(parsed)) return probe_unix_once(parsed.display, timeout_ms);
+  return probe_tcp_once(parsed, timeout_ms);
+}
+
+// A healthy Xvfb resets a connect that arrives while it is still tearing
+// down the previous client. Those failures are immediate. A silent socket
+// is not retried: one poll timeout is the whole wait.
+ProbeResult probe_display(const std::string& spec, int timeout_ms) {
+  constexpr int kAttempts = 5;
+  constexpr useconds_t kGapUs = 20000;
+  ProbeResult last;
+  for (int attempt = 0; attempt < kAttempts; ++attempt) {
+    last = probe_display_once(spec, timeout_ms);
+    if (last.kind != ProbeKind::Reset) return last;
+    if (attempt + 1 < kAttempts) ::usleep(kGapUs);
+  }
+  return last;
+}
+
+uid_t uid_of_pid(pid_t pid) {
+  if (pid <= 0) return static_cast<uid_t>(-1);
+  std::ifstream in("/proc/" + std::to_string(pid) + "/status");
+  std::string line;
+  while (std::getline(in, line)) {
+    if (line.rfind("Uid:", 0) != 0) continue;
+    std::istringstream iss(line.substr(4));
+    unsigned long real_uid = 0;
+    unsigned long euid = 0;
+    if (!(iss >> real_uid >> euid)) return static_cast<uid_t>(-1);
+    (void)real_uid;
+    return static_cast<uid_t>(euid);
+  }
+  return static_cast<uid_t>(-1);
+}
+
+bool process_cmdline_has_display(pid_t pid, int display) {
+  if (pid <= 0 || display < 0) return false;
+  std::ifstream in("/proc/" + std::to_string(pid) + "/cmdline", std::ios::binary);
+  if (!in) return false;
+  const std::string data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  const std::string suffix = ":" + std::to_string(display);
+  std::string token;
+  auto matches = [&](const std::string& tok) {
+    if (tok.empty() || tok.size() < suffix.size()) return false;
+    if (tok.compare(tok.size() - suffix.size(), suffix.size(), suffix) != 0) return false;
+    if (tok.size() == suffix.size()) return true;
+    const unsigned char prev = static_cast<unsigned char>(tok[tok.size() - suffix.size() - 1]);
+    return !std::isdigit(prev);
+  };
+  for (char c : data) {
+    if (c == '\0') {
+      if (matches(token)) return true;
+      token.clear();
+      continue;
+    }
+    token.push_back(c);
+  }
+  return matches(token);
+}
+
+// Proc-fd walk for the unix socket. A root server's fd directory is not
+// readable; that case is handled by SO_PEERCRED on the live connection.
 std::string server_comm_via_proc(int display) {
   if (display < 0) return {};
   std::ifstream table("/proc/net/unix");
@@ -745,23 +1198,110 @@ std::string server_comm_via_proc(int display) {
   return server_comm_for_display(display, matched, hits);
 }
 
+std::string server_comm_via_tcp(int display) {
+  const int port = x11_tcp_port(display);
+  if (port < 0) return {};
+  std::vector<TcpListenEntry> listeners;
+  auto take = [&](const char* path) {
+    std::ifstream in(path);
+    if (!in) return;
+    for (const TcpListenEntry& entry : parse_proc_net_tcp(in)) {
+      if (!entry.listening || entry.inode == 0) continue;
+      if (entry.port != static_cast<unsigned>(port)) continue;
+      listeners.push_back(entry);
+    }
+  };
+  take("/proc/net/tcp");
+  take("/proc/net/tcp6");
+  if (listeners.empty()) return {};
+
+  std::unordered_set<unsigned long> want;
+  std::unordered_set<uid_t> owner_uids;
+  for (const TcpListenEntry& entry : listeners) {
+    want.insert(entry.inode);
+    owner_uids.insert(entry.uid);
+  }
+
+  std::vector<ProcFdRecord> procs;
+  DIR* proc = opendir("/proc");
+  if (!proc) return {};
+  while (dirent* de = readdir(proc)) {
+    if (!std::isdigit(static_cast<unsigned char>(de->d_name[0]))) continue;
+    char* end = nullptr;
+    const unsigned long pid_ul = std::strtoul(de->d_name, &end, 10);
+    if (!end || *end != '\0' || pid_ul == 0 || pid_ul > static_cast<unsigned long>(INT_MAX)) {
+      continue;
+    }
+    const pid_t pid = static_cast<pid_t>(pid_ul);
+    const std::string fd_dir_path = std::string("/proc/") + de->d_name + "/fd";
+    DIR* fds = opendir(fd_dir_path.c_str());
+    if (!fds) {
+      const uid_t uid = uid_of_pid(pid);
+      if (!owner_uids.count(uid)) continue;
+      ProcFdRecord rec;
+      rec.pid = pid;
+      rec.uid = uid;
+      rec.comm = comm_of_pid(pid);
+      rec.fd_dir_readable = false;
+      rec.cmdline_matches_display = process_cmdline_has_display(pid, display);
+      if (!rec.comm.empty()) procs.push_back(std::move(rec));
+      continue;
+    }
+    std::vector<unsigned long> held;
+    while (dirent* fd = readdir(fds)) {
+      if (fd->d_name[0] == '.') continue;
+      const std::string link_path = fd_dir_path + "/" + fd->d_name;
+      char buf[96];
+      const ssize_t n = ::readlink(link_path.c_str(), buf, sizeof(buf));
+      if (n <= 0 || static_cast<size_t>(n) >= sizeof(buf)) continue;
+      unsigned long inode = 0;
+      if (!parse_socket_inode(std::string(buf, static_cast<size_t>(n)), inode)) continue;
+      if (!want.count(inode)) continue;
+      held.push_back(inode);
+      break;
+    }
+    closedir(fds);
+    if (held.empty()) continue;
+    ProcFdRecord rec;
+    rec.pid = pid;
+    rec.uid = uid_of_pid(pid);
+    rec.comm = comm_of_pid(pid);
+    rec.fd_dir_readable = true;
+    rec.socket_inodes = std::move(held);
+    if (!rec.comm.empty()) procs.push_back(std::move(rec));
+  }
+  closedir(proc);
+  return comm_owning_tcp_listeners(listeners, procs);
+}
+
+std::string server_comm_from_proc(int display) {
+  const std::string unix_comm = server_comm_via_proc(display);
+  if (!unix_comm.empty()) return unix_comm;
+  return server_comm_via_tcp(display);
+}
+
 struct XOpenComm {
   bool opened = false;
   bool have_pid = false;
+  bool timed_out = false;
   std::string comm;
 };
 
+// Name the server from a connection we open ourselves. XOpenDisplay is not
+// used: it has no timeout, and a second XOpenDisplay(":N") in this process
+// can fail after an earlier one was closed.
 XOpenComm comm_from_opened_display(const std::string& spec) {
   XOpenComm out;
   if (spec.empty()) return out;
-  Display* dpy = ::XOpenDisplay(spec.c_str());
-  if (!dpy) return out;
+  const ProbeResult probe = probe_display(spec, kXReplyTimeoutMs);
+  if (probe.kind == ProbeKind::TimedOut) {
+    out.timed_out = true;
+    return out;
+  }
+  if (probe.kind != ProbeKind::Answered) return out;
   out.opened = true;
-  const int fd = XConnectionNumber(dpy);
-  const XPeerCred peer = x_peer_cred_from_fd(fd);
-  ::XCloseDisplay(dpy);
-  out.have_pid = peer.have_pid;
-  out.comm = peer.comm;
+  out.have_pid = probe.have_pid;
+  out.comm = probe.comm;
   return out;
 }
 
@@ -772,18 +1312,30 @@ std::string server_comm_owning_display(const std::string& display_spec) {
   if (!parsed.ok || parsed.transport == XDisplayTransport::Remote) return {};
   if (parsed.transport == XDisplayTransport::LocalUnix) {
     XOpenComm opened = comm_from_opened_display(display_spec);
-    if (!opened.opened) {
+    // A silence timeout is the wedged server. Another spelling of the same
+    // display would wait again, so stop dialing and use the proc walk.
+    if (!opened.opened && !opened.timed_out) {
       const std::string simple = ":" + std::to_string(parsed.display);
       if (simple != display_spec) opened = comm_from_opened_display(simple);
     }
-    if (opened.opened) {
+    if (!opened.opened && !opened.timed_out) {
+      const std::string unix_form = "unix/:" + std::to_string(parsed.display);
+      if (unix_form != display_spec) opened = comm_from_opened_display(unix_form);
+    }
+    if (opened.have_pid) {
       // The peer pid is the server. An unreadable comm stays empty rather
       // than being replaced by some other process from the proc walk.
-      if (opened.have_pid) return opened.comm;
-      return {};
+      return opened.comm;
+    }
+    if (opened.opened) {
+      // The connection is up, but SO_PEERCRED did not name a process.
+      // Loopback TCP does that. The listening port is the server.
+      const std::string tcp_comm = server_comm_via_tcp(parsed.display);
+      if (!tcp_comm.empty()) return tcp_comm;
+      return server_comm_via_proc(parsed.display);
     }
   }
-  return server_comm_via_proc(parsed.display);
+  return server_comm_from_proc(parsed.display);
 }
 
 std::string virtual_display_label_for_server(const std::string& comm) {
@@ -799,11 +1351,12 @@ std::string gpu_label_for_x_connection(int connection_fd, const std::string& dis
       // Authoritative for the connection the window already has.
       return virtual_display_label_for_server(peer.comm);
     }
-    if (peer.supported) {
-      // Unix socket, but no peer pid. Do not guess from the process list.
-      return "Unknown GPU";
-    }
-    // SO_PEERCRED does not apply. Fall through to the spec.
+    // A zero peer pid (TCP) does not mean "Unknown GPU". Resolve the
+    // display from its listening socket instead of opening it again.
+    const XDisplayParsed parsed = parse_x_display(display_spec);
+    if (!parsed.ok) return "Unknown GPU";
+    if (parsed.transport == XDisplayTransport::Remote) return "Remote display";
+    return virtual_display_label_for_server(server_comm_from_proc(parsed.display));
   }
   const XDisplayParsed parsed = parse_x_display(display_spec);
   if (!parsed.ok) return "Unknown GPU";

@@ -250,7 +250,9 @@ bool AppRow::on_button_press_event(GdkEventButton* event) {
 }
 
 bool AppRow::on_key_press_event(GdkEventKey* event) {
-  if (event && is_force_close_popup_key(event->keyval, event->state)) {
+  const bool popup = event && is_force_close_popup_key(event->keyval, event->state);
+  const bool activate = event && is_row_activate_key(event->keyval, event->state);
+  if (popup || activate) {
     // Swallow the key even when this row is not current, so a binding
     // cannot open Force Close for a row the user is not on.
     if (!keyboard_targets_this_row()) return true;

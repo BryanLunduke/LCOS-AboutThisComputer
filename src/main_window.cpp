@@ -90,17 +90,44 @@ window.lunduke-about * {
   font-size: 13px;
   font-weight: bold;
 }
+/* The class lives on the scrolled window. Themes style the scrollbar GTK
+   creates inside it, so the selector has to reach that child. The same
+   class is also added to the scrollbar widget. Square 14px blue thumb,
+   only for this list — nothing here restyles other windows. */
+scrolledwindow.platinum-scroll scrollbar,
 scrollbar.platinum-scroll {
   background-color: @theme_bg_color;
+  background-image: none;
+  border-radius: 0;
+  box-shadow: none;
 }
-scrollbar.platinum-scroll slider {
-  background-color: #5a7ec8;
+scrolledwindow.platinum-scroll scrollbar.vertical,
+scrollbar.platinum-scroll.vertical {
+  min-width: 14px;
+}
+scrolledwindow.platinum-scroll scrollbar trough,
+scrollbar.platinum-scroll trough {
+  background-color: @theme_bg_color;
+  background-image: none;
   border-radius: 0;
   min-width: 14px;
-  border: 1px solid #2a4a8a;
+  box-shadow: none;
 }
+scrolledwindow.platinum-scroll scrollbar slider,
+scrollbar.platinum-scroll slider {
+  background-color: #5a7ec8;
+  background-image: none;
+  border-radius: 0;
+  min-width: 14px;
+  min-height: 14px;
+  border: 1px solid #2a4a8a;
+  margin: 0;
+  box-shadow: none;
+}
+scrolledwindow.platinum-scroll scrollbar button,
 scrollbar.platinum-scroll button {
   background-color: @theme_bg_color;
+  background-image: none;
   border-radius: 0;
 }
 )CSS";
@@ -160,6 +187,45 @@ void set_info_label(Gtk::Label& label, const std::string& text) {
   label.set_text(text);
   label.set_halign(Gtk::ALIGN_START);
   label.set_ellipsize(Pango::ELLIPSIZE_END);
+  label.set_max_width_chars(36);
+  label.set_tooltip_text(text);
+}
+
+namespace {
+
+std::string pieces_on_own_lines(const std::string& text) {
+  std::string shown;
+  shown.reserve(text.size());
+  for (size_t i = 0; i < text.size();) {
+    if (text.compare(i, 2, "; ") == 0) {
+      shown.push_back('\n');
+      i += 2;
+      continue;
+    }
+    shown.push_back(text[i]);
+    ++i;
+  }
+  return shown;
+}
+
+}  // namespace
+
+void set_wrapping_info_label(Gtk::Label& label, const std::string& text) {
+  // Each "; "-joined piece (a second CPU group, a second GPU) starts on
+  // its own line, then wraps inside the column. Nothing is ellipsized.
+  label.set_text(pieces_on_own_lines(text));
+  label.set_halign(Gtk::ALIGN_START);
+  label.set_valign(Gtk::ALIGN_START);
+  label.set_xalign(0.0f);
+  label.set_line_wrap(true);
+  label.set_line_wrap_mode(Pango::WRAP_WORD_CHAR);
+  label.set_ellipsize(Pango::ELLIPSIZE_NONE);
+  label.set_justify(Gtk::JUSTIFY_LEFT);
+  // width_chars fixes both the column and the height-for-width probe.
+  // Without it a wrapping label measures its minimum height at one
+  // character and the window becomes a tall strip. 32 characters stays
+  // inside the right-hand column of the 520px window.
+  label.set_width_chars(32);
   label.set_max_width_chars(36);
   label.set_tooltip_text(text);
 }
@@ -515,8 +581,8 @@ MainWindow::MainWindow() {
 
   set_info_label(os_label_, "OS Version:  " + info_.os_pretty);
   set_info_label(mem_label_, "Built-in Memory:  " + info_.total_memory);
-  set_info_label(cpu_label_, "CPU:  " + info_.cpu_model);
-  set_info_label(gpu_label_, "GPU:  " + info_.gpu);
+  set_wrapping_info_label(cpu_label_, "CPU:  " + info_.cpu_model);
+  set_wrapping_info_label(gpu_label_, "GPU:  " + info_.gpu);
 
   left_col->pack_start(os_label_, Gtk::PACK_SHRINK);
   left_col->pack_start(mem_label_, Gtk::PACK_SHRINK);
@@ -549,6 +615,15 @@ MainWindow::MainWindow() {
   // the bar whenever the rows do not fit.
   list_scroll_.set_overlay_scrolling(false);
   list_scroll_.get_style_context()->add_class("platinum-scroll");
+  auto tag_bar = [](Gtk::Scrollbar* bar) {
+    if (bar) bar->get_style_context()->add_class("platinum-scroll");
+  };
+  tag_bar(list_scroll_.get_vscrollbar());
+  tag_bar(list_scroll_.get_hscrollbar());
+  list_scroll_.signal_realize().connect([this, tag_bar]() {
+    tag_bar(list_scroll_.get_vscrollbar());
+    tag_bar(list_scroll_.get_hscrollbar());
+  });
   // Shorter than the old 100px so the pinned LCOS System row still fits
   // inside the 360px window.
   list_scroll_.set_min_content_height(64);
