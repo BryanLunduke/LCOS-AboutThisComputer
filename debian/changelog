@@ -1,3 +1,9 @@
+lunduke-about (0.9.1-1) unstable; urgency=medium
+
+  * Version bump for LCOS 0.9.1 (testing and bug-fix release). No functional changes.
+
+ -- Phil <phil@brushpad.local>  Fri, 09 Oct 2026 15:52:00 +0000
+
 lunduke-about (0.9-10) unstable; urgency=medium
 
   * Force Close from Enter, the Menu key, Shift+F10, and the right mouse
