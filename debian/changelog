@@ -1,3 +1,9 @@
+lunduke-about (0.9.2-2) unstable; urgency=medium
+
+  * Add Jon Darrow (#2), Jesse Buschhaus and Bob Lorna (end) to the About supporters list.
+
+ -- Phil <phil@brushpad.local>  Sat, 10 Oct 2026 02:46:35 +0000
+
 lunduke-about (0.9.2-1) unstable; urgency=medium
 
   * Version bump for LCOS 0.9.2. No functional changes.

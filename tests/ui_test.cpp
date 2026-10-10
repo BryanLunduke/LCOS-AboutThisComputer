@@ -679,8 +679,10 @@ void test_window_layout() {
     CHECK(outside == 0);
   }
 
-  // The two new names stay in order, and the wrapped block still fits in
-  // the header beside the logo (no crawl clip) inside the 520×360 window.
+  // Jon Darrow is second and Steve Rockefeller third. The list ends
+  // Jack Beckman, Jesse Buschhaus, Bob Lorna. The wrapped block still
+  // fits in the header beside the logo (no crawl clip) inside the
+  // 520×360 window.
   lundukeabout::SupportersNamesView* names = nullptr;
   for (int i = 0; i < 50; ++i) {
     names = nullptr;
@@ -699,11 +701,14 @@ void test_window_layout() {
     const std::string shown(names->text());
     const std::vector<std::string> expected = {
         "\"Fuzzy\"",
+        "Jon Darrow",
         "Steve Rockefeller",
         "Steven P.",
         "Chris Hammond",
         "Mike Beasley",
         "Jack Beckman",
+        "Jesse Buschhaus",
+        "Bob Lorna",
     };
     std::vector<std::string> shown_entries;
     std::string current;
@@ -717,16 +722,19 @@ void test_window_layout() {
       current.push_back(shown[i]);
     }
     shown_entries.push_back(current);
-    constexpr std::size_t kPreviousCount = 4;
-    CHECK(shown_entries.size() == kPreviousCount + 2);
-    if (shown_entries.size() >= 3) {
-      CHECK(shown_entries[1] == "Steve Rockefeller");
-      CHECK(shown_entries[2] == "Steven P.");
-      CHECK(shown_entries.back() == "Jack Beckman");
-    }
+    constexpr std::size_t kCount = 9;
+    CHECK(shown_entries.size() == kCount);
+    CHECK(shown_entries.size() >= 3);
+    CHECK(shown_entries[0] == "\"Fuzzy\"");
+    CHECK(shown_entries[1] == "Jon Darrow");
+    CHECK(shown_entries[2] == "Steve Rockefeller");
+    CHECK(shown_entries[shown_entries.size() - 3] == "Jack Beckman");
+    CHECK(shown_entries[shown_entries.size() - 2] == "Jesse Buschhaus");
+    CHECK(shown_entries.back() == "Bob Lorna");
     CHECK(shown_entries == expected);
     CHECK(shown ==
-          "\"Fuzzy\", Steve Rockefeller, Steven P., Chris Hammond, Mike Beasley, Jack Beckman");
+          "\"Fuzzy\", Jon Darrow, Steve Rockefeller, Steven P., Chris Hammond, "
+          "Mike Beasley, Jack Beckman, Jesse Buschhaus, Bob Lorna");
 
     const int content_h = names->wrapped_content_height();
     const int view_h = names->get_allocated_height();

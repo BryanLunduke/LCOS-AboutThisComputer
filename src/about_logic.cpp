@@ -1436,11 +1436,14 @@ std::string join_supporter_entries(const std::vector<std::string>& entries) {
 std::vector<std::string> builtin_supporter_entries() {
   return {
       "\"Fuzzy\"",
+      "Jon Darrow",
       "Steve Rockefeller",
       "Steven P.",
       "Chris Hammond",
       "Mike Beasley",
       "Jack Beckman",
+      "Jesse Buschhaus",
+      "Bob Lorna",
   };
 }
 
