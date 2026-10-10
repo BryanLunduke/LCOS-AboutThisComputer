@@ -2116,20 +2116,23 @@ int main() {
     CHECK(tiny.front() == "Zebra");
   }
 
-  // Supporters: Steve Rockefeller is inserted at index 1. The previous
-  // second entry, Steven P., moves to index 2. Jack Beckman is last.
-  // The list had 4 names and grows by exactly 2. The file and the
-  // built-in fallback used when that file is missing stay the same list.
+  // Supporters: Jon Darrow is inserted at index 1. Steve Rockefeller,
+  // previously second, moves to index 2. The list ends Jack Beckman,
+  // Jesse Buschhaus, Bob Lorna. The previous list of 6 grows by 3.
+  // The file and the built-in fallback stay the same list.
   {
     const std::vector<std::string> expected = {
         "\"Fuzzy\"",
+        "Jon Darrow",
         "Steve Rockefeller",
         "Steven P.",
         "Chris Hammond",
         "Mike Beasley",
         "Jack Beckman",
+        "Jesse Buschhaus",
+        "Bob Lorna",
     };
-    constexpr std::size_t kPreviousCount = 4;
+    constexpr std::size_t kCount = 9;
     std::string path;
     if (const char* env = std::getenv("LUNDUKE_SUPPORTERS_TXT")) path = env;
     if (path.empty()) {
@@ -2141,17 +2144,20 @@ int main() {
     std::ifstream supporters_file(path);
     CHECK(static_cast<bool>(supporters_file));
     const std::vector<std::string> entries = parse_supporter_entries(supporters_file);
-    CHECK(entries.size() == kPreviousCount + 2);
-    CHECK(builtin_supporter_entries().size() == kPreviousCount + 2);
-    if (entries.size() >= 3) {
-      CHECK(entries[1] == "Steve Rockefeller");
-      CHECK(entries[2] == "Steven P.");
-      CHECK(entries.back() == "Jack Beckman");
-    }
+    CHECK(entries.size() == kCount);
+    CHECK(builtin_supporter_entries().size() == kCount);
+    CHECK(entries.size() >= 3);
+    CHECK(entries[0] == "\"Fuzzy\"");
+    CHECK(entries[1] == "Jon Darrow");
+    CHECK(entries[2] == "Steve Rockefeller");
+    CHECK(entries[entries.size() - 3] == "Jack Beckman");
+    CHECK(entries[entries.size() - 2] == "Jesse Buschhaus");
+    CHECK(entries.back() == "Bob Lorna");
     CHECK(entries == expected);
     CHECK(builtin_supporter_entries() == expected);
     CHECK(join_supporter_entries(builtin_supporter_entries()) ==
-          "\"Fuzzy\", Steve Rockefeller, Steven P., Chris Hammond, Mike Beasley, Jack Beckman");
+          "\"Fuzzy\", Jon Darrow, Steve Rockefeller, Steven P., Chris Hammond, "
+          "Mike Beasley, Jack Beckman, Jesse Buschhaus, Bob Lorna");
   }
 
   // Round 7: desktop Name, prettified class, row-tree rollup, refresh pace.

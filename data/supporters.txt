@@ -2,9 +2,12 @@
 # One entry per non-empty line. Lines starting with # are ignored.
 # The About window joins entries with a comma and a space.
 "Fuzzy"
+Jon Darrow
 Steve Rockefeller
 Steven P.
 Chris Hammond
 Mike Beasley
 Jack Beckman
+Jesse Buschhaus
+Bob Lorna
 
