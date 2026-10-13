@@ -1,3 +1,9 @@
+lunduke-about (0.9.4-2) unstable; urgency=medium
+
+  * Add AtrusBatleth to the supporters list.
+
+ -- Phil <phil@brushpad.local>  Tue, 13 Oct 2026 17:36:03 +0000
+
 lunduke-about (0.9.4-1) unstable; urgency=medium
 
   * Version bump for LCOS 0.9.4. No functional changes.

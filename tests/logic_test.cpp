@@ -2118,7 +2118,7 @@ int main() {
 
   // Supporters: Jon Darrow is inserted at index 1. Steve Rockefeller,
   // previously second, moves to index 2. The list ends Jack Beckman,
-  // Jesse Buschhaus, Bob Lorna. The previous list of 6 grows by 3.
+  // Jesse Buschhaus, Bob Lorna, AtrusBatleth (10 entries).
   // The file and the built-in fallback stay the same list.
   {
     const std::vector<std::string> expected = {
@@ -2131,8 +2131,9 @@ int main() {
         "Jack Beckman",
         "Jesse Buschhaus",
         "Bob Lorna",
+        "AtrusBatleth",
     };
-    constexpr std::size_t kCount = 9;
+    constexpr std::size_t kCount = 10;
     std::string path;
     if (const char* env = std::getenv("LUNDUKE_SUPPORTERS_TXT")) path = env;
     if (path.empty()) {
@@ -2150,14 +2151,14 @@ int main() {
     CHECK(entries[0] == "\"Fuzzy\"");
     CHECK(entries[1] == "Jon Darrow");
     CHECK(entries[2] == "Steve Rockefeller");
-    CHECK(entries[entries.size() - 3] == "Jack Beckman");
-    CHECK(entries[entries.size() - 2] == "Jesse Buschhaus");
-    CHECK(entries.back() == "Bob Lorna");
+    CHECK(entries[entries.size() - 3] == "Jesse Buschhaus");
+    CHECK(entries[entries.size() - 2] == "Bob Lorna");
+    CHECK(entries.back() == "AtrusBatleth");
     CHECK(entries == expected);
     CHECK(builtin_supporter_entries() == expected);
     CHECK(join_supporter_entries(builtin_supporter_entries()) ==
           "\"Fuzzy\", Jon Darrow, Steve Rockefeller, Steven P., Chris Hammond, "
-          "Mike Beasley, Jack Beckman, Jesse Buschhaus, Bob Lorna");
+          "Mike Beasley, Jack Beckman, Jesse Buschhaus, Bob Lorna, AtrusBatleth");
   }
 
   // Round 7: desktop Name, prettified class, row-tree rollup, refresh pace.

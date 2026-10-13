@@ -680,7 +680,7 @@ void test_window_layout() {
   }
 
   // Jon Darrow is second and Steve Rockefeller third. The list ends
-  // Jack Beckman, Jesse Buschhaus, Bob Lorna. The wrapped block still
+  // Jesse Buschhaus, Bob Lorna, AtrusBatleth. The wrapped block still
   // fits in the header beside the logo (no crawl clip) inside the
   // 520×360 window.
   lundukeabout::SupportersNamesView* names = nullptr;
@@ -709,6 +709,7 @@ void test_window_layout() {
         "Jack Beckman",
         "Jesse Buschhaus",
         "Bob Lorna",
+        "AtrusBatleth",
     };
     std::vector<std::string> shown_entries;
     std::string current;
@@ -722,19 +723,19 @@ void test_window_layout() {
       current.push_back(shown[i]);
     }
     shown_entries.push_back(current);
-    constexpr std::size_t kCount = 9;
+    constexpr std::size_t kCount = 10;
     CHECK(shown_entries.size() == kCount);
     CHECK(shown_entries.size() >= 3);
     CHECK(shown_entries[0] == "\"Fuzzy\"");
     CHECK(shown_entries[1] == "Jon Darrow");
     CHECK(shown_entries[2] == "Steve Rockefeller");
-    CHECK(shown_entries[shown_entries.size() - 3] == "Jack Beckman");
-    CHECK(shown_entries[shown_entries.size() - 2] == "Jesse Buschhaus");
-    CHECK(shown_entries.back() == "Bob Lorna");
+    CHECK(shown_entries[shown_entries.size() - 3] == "Jesse Buschhaus");
+    CHECK(shown_entries[shown_entries.size() - 2] == "Bob Lorna");
+    CHECK(shown_entries.back() == "AtrusBatleth");
     CHECK(shown_entries == expected);
     CHECK(shown ==
           "\"Fuzzy\", Jon Darrow, Steve Rockefeller, Steven P., Chris Hammond, "
-          "Mike Beasley, Jack Beckman, Jesse Buschhaus, Bob Lorna");
+          "Mike Beasley, Jack Beckman, Jesse Buschhaus, Bob Lorna, AtrusBatleth");
 
     const int content_h = names->wrapped_content_height();
     const int view_h = names->get_allocated_height();

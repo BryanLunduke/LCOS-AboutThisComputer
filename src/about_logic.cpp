@@ -1444,6 +1444,7 @@ std::vector<std::string> builtin_supporter_entries() {
       "Jack Beckman",
       "Jesse Buschhaus",
       "Bob Lorna",
+      "AtrusBatleth",
   };
 }
 
