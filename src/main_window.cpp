@@ -29,8 +29,8 @@ namespace {
 [[maybe_unused]] constexpr const char* kNoRunningSoftware = "No Running Software.";
 
 // Theme-aware chrome: no hardcoded platinum greys for window/panel.
-// The list stays white, so its labels are forced dark (a dark theme's
-// foreground would otherwise be unreadable on that white).
+// The list is white in a light theme, so its labels are forced dark. In a
+// dark theme about_theme_css() replaces those colours (A-1, round 11).
 const char* kAboutCss = R"CSS(
 window.lunduke-about {
   background-color: @theme_bg_color;
@@ -725,6 +725,38 @@ void MainWindow::apply_platinum_css() {
     Gtk::StyleContext::add_provider_for_screen(
         screen, css_, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
   }
+  sync_theme_colors();
+  signal_style_updated().connect([this]() { sync_theme_colors(); });
+}
+
+void MainWindow::sync_theme_colors() {
+  Gdk::RGBA bg;
+  bool dark = false;
+  if (get_style_context()->lookup_color("theme_bg_color", bg)) {
+    dark = theme_is_dark(AboutRgb{bg.get_red(), bg.get_green(), bg.get_blue()});
+  }
+  if (theme_synced_ && dark == theme_dark_) return;
+  theme_synced_ = true;
+  theme_dark_ = dark;
+  auto screen = Gdk::Screen::get_default();
+  if (theme_css_ && screen) Gtk::StyleContext::remove_provider_for_screen(screen, theme_css_);
+  theme_css_.reset();
+  const std::string css = about_theme_css(dark);
+  if (!css.empty()) {
+    theme_css_ = Gtk::CssProvider::create();
+    try {
+      theme_css_->load_from_data(css);
+    } catch (const Glib::Error& e) {
+      std::cerr << "CSS error: " << e.what() << std::endl;
+    }
+    if (screen) {
+      Gtk::StyleContext::add_provider_for_screen(screen, theme_css_,
+                                                 GTK_STYLE_PROVIDER_PRIORITY_APPLICATION + 1);
+    }
+  }
+  AppRow::set_dark_theme(dark);
+  ram_bar_.set_dark(dark);
+  queue_draw();
 }
 
 std::string MainWindow::find_data_file(const std::string& relative) const {

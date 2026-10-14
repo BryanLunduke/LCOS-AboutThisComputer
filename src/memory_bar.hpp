@@ -2,6 +2,7 @@
 #pragma once
 
 #include <gtkmm.h>
+#include "about_logic.hpp"
 #include <string>
 
 namespace lundukeabout {
@@ -53,6 +54,9 @@ public:
   void set_unknown();
   // Layout at a given allocation, using the captions and the widget font.
   MemoryBarLayout layout_at(int width, int height);
+  // A-1 (round 11): fill, bevel and caption colours for a dark theme.
+  void set_dark(bool dark);
+  bool dark() const { return palette_.dark; }
 
 protected:
   bool on_draw(const Cairo::RefPtr<Cairo::Context>& cr) override;
@@ -67,6 +71,7 @@ private:
   bool show_free_ = false;
   std::string used_caption_;
   std::string free_caption_;
+  AboutPalette palette_ = about_palette(false);
 };
 
 }  // namespace lundukeabout

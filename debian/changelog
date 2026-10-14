@@ -1,3 +1,11 @@
+lunduke-about (0.9.4-3) unstable; urgency=medium
+
+  * Fix round 11 review finding A-1: in a dark theme the application list,
+    its sort header and the RAM bar use dark colours instead of white and
+    light grey.
+
+ -- Phil <phil@brushpad.local>  Wed, 14 Oct 2026 18:40:00 +0000
+
 lunduke-about (0.9.4-2) unstable; urgency=medium
 
   * Add AtrusBatleth to the supporters list.

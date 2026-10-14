@@ -89,6 +89,14 @@ test(
   timeout: 120,
 )
 
+test(
+  'about-ui-dark',
+  xvfb_run,
+  args: ['-a', about_ui_test],
+  env: ['ABOUT_UI_DARK_ONLY=1', 'GTK_THEME=Adwaita:dark'],
+  timeout: 120,
+)
+
 about_exe = executable(
   'lunduke-about',
   lunduke_about_sources,

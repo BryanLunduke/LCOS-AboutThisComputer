@@ -249,14 +249,22 @@ void AppRow::popup_force_close_menu(const GdkEvent* event) {
   menu_.popup_at_widget(this, Gdk::GRAVITY_SOUTH_WEST, Gdk::GRAVITY_NORTH_WEST, event);
 }
 
+namespace {
+bool g_row_dark = false;
+}  // namespace
+
+void AppRow::set_dark_theme(bool dark) { g_row_dark = dark; }
+bool AppRow::dark_theme() { return g_row_dark; }
+
 bool AppRow::on_draw(const Cairo::RefPtr<Cairo::Context>& cr) {
   const int w = get_allocated_width();
   const int h = get_allocated_height();
   if (w > 0 && h > 0 && cr) {
     // #e4eaf6. Painted from is_focus(), which does not require the toplevel
     // to be the active window (a display with no window manager never is).
-    if (is_focus()) cr->set_source_rgb(0xE4 / 255.0, 0xEA / 255.0, 0xF6 / 255.0);
-    else cr->set_source_rgb(1.0, 1.0, 1.0);
+    const AboutPalette palette = about_palette(g_row_dark);
+    const AboutRgb& fill = is_focus() ? palette.row_focus : palette.list_bg;
+    cr->set_source_rgb(fill.r, fill.g, fill.b);
     cr->rectangle(0, 0, w, h);
     cr->fill();
   }

@@ -473,4 +473,34 @@ std::string join_supporter_entries(const std::vector<std::string>& entries);
 // Used when supporters.txt is missing or empty. Must match data/supporters.txt.
 std::vector<std::string> builtin_supporter_entries();
 
+// A-1 (round 11): colours for the parts this app paints itself (app list,
+// RAM bar). The window chrome already follows the theme; these follow
+// whether the theme is dark, judged from its background colour.
+struct AboutRgb {
+  double r = 0;
+  double g = 0;
+  double b = 0;
+};
+struct AboutPalette {
+  bool dark = false;
+  AboutRgb list_bg;
+  AboutRgb list_fg;
+  AboutRgb list_dim;
+  AboutRgb row_focus;
+  AboutRgb header_bg;
+  AboutRgb bar_free;
+  AboutRgb bar_used;
+  AboutRgb bevel_dark;
+  AboutRgb bevel_light;
+  AboutRgb text_on_free;
+  AboutRgb text_on_used;
+};
+double relative_luminance(const AboutRgb& c);
+double contrast_ratio(const AboutRgb& a, const AboutRgb& b);
+bool theme_is_dark(const AboutRgb& theme_bg);
+AboutPalette about_palette(bool dark);
+// CSS for the list, its frame and the sort header, loaded above the base
+// stylesheet. Empty for a light theme (the base stylesheet is the light one).
+std::string about_theme_css(bool dark);
+
 }  // namespace lundukeabout
