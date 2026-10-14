@@ -84,6 +84,11 @@ public:
 
 private:
   void apply_platinum_css();
+  // A-1 (round 11): re-checks the theme and applies dark list/bar colours.
+  void sync_theme_colors();
+ public:
+  bool theme_dark() const { return theme_dark_; }
+ private:
   void load_logo();
   void load_supporters();
   void update_supporters_cap();
@@ -154,6 +159,9 @@ private:
   // is still on the stack.
   int force_close_depth_ = 0;
   Glib::RefPtr<Gtk::CssProvider> css_;
+  Glib::RefPtr<Gtk::CssProvider> theme_css_;
+  bool theme_dark_ = false;
+  bool theme_synced_ = false;
   sigc::connection refresh_conn_;
   sigc::connection probe_conn_;
   sigc::connection scroll_restore_conn_;

@@ -1549,12 +1549,33 @@ void test_proc_scan_cost() {
 
 }  // namespace
 
+// A-1 (round 11): with GTK_THEME=Adwaita:dark the window notices the dark
+// theme and the list rows and RAM bar switch to the dark palette.
+static int check_dark_theme() {
+  const char* theme = g_getenv("GTK_THEME");
+  if (theme == nullptr || std::string(theme).find(":dark") == std::string::npos) return 0;
+  lundukeabout::MainWindow window;
+  window.show_all();
+  for (int i = 0; i < 20 && Gtk::Main::events_pending(); ++i) Gtk::Main::iteration(false);
+  if (!window.theme_dark() || !lundukeabout::AppRow::dark_theme()) {
+    std::cerr << "A-1: dark theme not detected\n";
+    return 1;
+  }
+  std::cout << "A-1: dark theme detected; list and RAM bar use the dark palette\n";
+  return 0;
+}
+
 int main(int argc, char** argv) {
   if (!gtk_init_check(&argc, &argv)) {
     std::cerr << "Needs X11\n";
     return 1;
   }
   Gtk::Main::init_gtkmm_internals();
+  if (g_getenv("ABOUT_UI_DARK_ONLY") != nullptr) {
+    const int rc = check_dark_theme();
+    if (g_getenv("GTK_THEME") == nullptr) return 1;
+    return rc;
+  }
   test_info_label();
   test_menu_key();
   test_click_and_keys_agree();

@@ -117,6 +117,12 @@ MemoryBar::MemoryBar() {
   set_valign(Gtk::ALIGN_CENTER);
 }
 
+void MemoryBar::set_dark(bool dark) {
+  if (palette_.dark == dark) return;
+  palette_ = about_palette(dark);
+  queue_draw();
+}
+
 void MemoryBar::set_unknown() {
   unknown_ = true;
   used_kb_ = 0;
@@ -198,16 +204,16 @@ bool MemoryBar::on_draw(const Cairo::RefPtr<Cairo::Context>& cr) {
     const double y = 0.5;
     const double bar_w = w - 1.0;
     const double bar_h = h - 1.0;
-    cr->set_source_rgb(0.92, 0.92, 0.94);
+    cr->set_source_rgb(palette_.bar_free.r, palette_.bar_free.g, palette_.bar_free.b);
     cr->rectangle(x, y, bar_w, bar_h);
     cr->fill();
     cr->set_line_width(1.0);
-    cr->set_source_rgb(0.25, 0.25, 0.25);
+    cr->set_source_rgb(palette_.bevel_dark.r, palette_.bevel_dark.g, palette_.bevel_dark.b);
     cr->move_to(x, y + bar_h);
     cr->line_to(x, y);
     cr->line_to(x + bar_w, y);
     cr->stroke();
-    cr->set_source_rgb(1.0, 1.0, 1.0);
+    cr->set_source_rgb(palette_.bevel_light.r, palette_.bevel_light.g, palette_.bevel_light.b);
     cr->move_to(x + bar_w, y);
     cr->line_to(x + bar_w, y + bar_h);
     cr->line_to(x, y + bar_h);
@@ -221,7 +227,7 @@ bool MemoryBar::on_draw(const Cairo::RefPtr<Cairo::Context>& cr) {
     int tw = 0;
     int th = 0;
     layout->get_pixel_size(tw, th);
-    cr->set_source_rgb(0.1, 0.1, 0.1);
+    cr->set_source_rgb(palette_.text_on_free.r, palette_.text_on_free.g, palette_.text_on_free.b);
     cr->move_to(x + std::max(0.0, (bar_w - tw) / 2.0), y + std::max(0.0, (bar_h - th) / 2.0));
     layout->show_in_cairo_context(cr);
     return true;
@@ -247,12 +253,12 @@ bool MemoryBar::on_draw(const Cairo::RefPtr<Cairo::Context>& cr) {
   const double bar_h = layout.bar_h;
   const double used_w = std::clamp(layout.blue_w, 0.0, bar_w);
 
-  cr->set_source_rgb(0.92, 0.92, 0.94);
+  cr->set_source_rgb(palette_.bar_free.r, palette_.bar_free.g, palette_.bar_free.b);
   cr->rectangle(x, y, bar_w, bar_h);
   cr->fill();
 
   if (used_w > 0.5) {
-    cr->set_source_rgb(0.20, 0.35, 0.85);
+    cr->set_source_rgb(palette_.bar_used.r, palette_.bar_used.g, palette_.bar_used.b);
     cr->rectangle(x, y, used_w, bar_h);
     cr->fill();
 
@@ -262,13 +268,13 @@ bool MemoryBar::on_draw(const Cairo::RefPtr<Cairo::Context>& cr) {
   }
 
   cr->set_line_width(1.0);
-  cr->set_source_rgb(0.25, 0.25, 0.25);
+  cr->set_source_rgb(palette_.bevel_dark.r, palette_.bevel_dark.g, palette_.bevel_dark.b);
   cr->move_to(x, y + bar_h);
   cr->line_to(x, y);
   cr->line_to(x + bar_w, y);
   cr->stroke();
 
-  cr->set_source_rgb(1.0, 1.0, 1.0);
+  cr->set_source_rgb(palette_.bevel_light.r, palette_.bevel_light.g, palette_.bevel_light.b);
   cr->move_to(x + bar_w, y);
   cr->line_to(x + bar_w, y + bar_h);
   cr->line_to(x, y + bar_h);
@@ -282,8 +288,15 @@ bool MemoryBar::on_draw(const Cairo::RefPtr<Cairo::Context>& cr) {
     if (fd.get_size() <= 0) fd.set_size(10 * PANGO_SCALE);
     fd.set_weight(Pango::WEIGHT_BOLD);
     layout->set_font_description(fd);
-    if (on_blue && !box.below) cr->set_source_rgb(1.0, 1.0, 1.0);
-    else cr->set_source_rgb(0.10, 0.10, 0.10);
+    if (on_blue && !box.below) {
+      cr->set_source_rgb(palette_.text_on_used.r, palette_.text_on_used.g, palette_.text_on_used.b);
+    } else if (box.below) {
+      // Under the bar the caption sits on the window background.
+      Gdk::RGBA fg = get_style_context()->get_color(get_state_flags());
+      cr->set_source_rgb(fg.get_red(), fg.get_green(), fg.get_blue());
+    } else {
+      cr->set_source_rgb(palette_.text_on_free.r, palette_.text_on_free.g, palette_.text_on_free.b);
+    }
     cr->move_to(box.x, box.y);
     layout->show_in_cairo_context(cr);
   };

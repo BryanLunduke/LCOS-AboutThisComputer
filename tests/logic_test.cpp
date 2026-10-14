@@ -190,6 +190,28 @@ bool tcp_port_accepts(int port) {
 int main() {
   using namespace lundukeabout;
 
+  // A-1 (round 11): dark theme detection and readable dark list / RAM bar.
+  {
+    CHECK(theme_is_dark(AboutRgb{0.207, 0.207, 0.207}));   // Adwaita:dark #353535
+    CHECK(!theme_is_dark(AboutRgb{0.965, 0.961, 0.957}));  // Adwaita #f6f5f4
+    const AboutPalette dark = about_palette(true);
+    const AboutPalette light = about_palette(false);
+    CHECK(dark.dark && !light.dark);
+    CHECK(relative_luminance(dark.list_bg) < 0.05);       // no white box
+    CHECK(relative_luminance(dark.bar_free) < 0.12);      // no light-grey half
+    CHECK(contrast_ratio(dark.list_fg, dark.list_bg) >= 7.0);
+    CHECK(contrast_ratio(dark.list_dim, dark.list_bg) >= 4.5);
+    CHECK(contrast_ratio(dark.list_fg, dark.row_focus) >= 4.5);
+    CHECK(contrast_ratio(dark.text_on_free, dark.bar_free) >= 4.5);
+    CHECK(contrast_ratio(dark.text_on_used, dark.bar_used) >= 4.5);
+    CHECK(contrast_ratio(light.text_on_free, light.bar_free) >= 4.5);
+    CHECK(about_theme_css(false).empty());
+    const std::string css = about_theme_css(true);
+    CHECK(css.find("#ffffff") == std::string::npos);
+    CHECK(css.find(".platinum-list") != std::string::npos);
+    CHECK(css.find(".app-sort-header") != std::string::npos);
+  }
+
   // Malformed _NET_WM_ICON must not spin. product + 2 wraps to 0 for this pair.
   {
     const unsigned long evil[] = {(1UL << 63) - 1, 2};

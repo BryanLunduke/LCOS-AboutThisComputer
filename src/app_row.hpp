@@ -17,6 +17,9 @@ public:
   const AppEntry& entry() const { return entry_; }
   bool menu_posted() const { return menu_posted_; }
   void update_entry(const AppEntry& entry);
+  // A-1 (round 11): row fill for a dark theme; shared by every row.
+  static void set_dark_theme(bool dark);
+  static bool dark_theme();
 
   using ForceCloseHandler = std::function<void(const AppEntry&)>;
   void set_force_close_handler(ForceCloseHandler handler);

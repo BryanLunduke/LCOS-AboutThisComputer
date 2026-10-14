@@ -2,6 +2,9 @@
 #include "about_logic.hpp"
 
 #include <algorithm>
+#include <cmath>
+
+#include <algorithm>
 #include <cctype>
 #include <cerrno>
 #include <climits>
@@ -1446,6 +1449,100 @@ std::vector<std::string> builtin_supporter_entries() {
       "Bob Lorna",
       "AtrusBatleth",
   };
+}
+
+namespace {
+double channel(double c) {
+  c = std::clamp(c, 0.0, 1.0);
+  return c <= 0.03928 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4);
+}
+AboutRgb hex(unsigned v) {
+  return AboutRgb{((v >> 16) & 0xff) / 255.0, ((v >> 8) & 0xff) / 255.0, (v & 0xff) / 255.0};
+}
+}  // namespace
+
+double relative_luminance(const AboutRgb& c) {
+  return 0.2126 * channel(c.r) + 0.7152 * channel(c.g) + 0.0722 * channel(c.b);
+}
+
+double contrast_ratio(const AboutRgb& a, const AboutRgb& b) {
+  const double la = relative_luminance(a);
+  const double lb = relative_luminance(b);
+  return (std::max(la, lb) + 0.05) / (std::min(la, lb) + 0.05);
+}
+
+bool theme_is_dark(const AboutRgb& theme_bg) {
+  return relative_luminance(theme_bg) < 0.18;
+}
+
+AboutPalette about_palette(bool dark) {
+  AboutPalette p;
+  p.dark = dark;
+  if (!dark) {
+    p.list_bg = hex(0xffffff);
+    p.list_fg = hex(0x1a1a1a);
+    p.list_dim = hex(0x5a5a5a);
+    p.row_focus = hex(0xe4eaf6);
+    p.header_bg = hex(0xe4e4ea);
+    p.bar_free = AboutRgb{0.92, 0.92, 0.94};
+    p.bar_used = AboutRgb{0.20, 0.35, 0.85};
+    p.bevel_dark = AboutRgb{0.25, 0.25, 0.25};
+    p.bevel_light = AboutRgb{1.0, 1.0, 1.0};
+    p.text_on_free = AboutRgb{0.10, 0.10, 0.10};
+    p.text_on_used = AboutRgb{1.0, 1.0, 1.0};
+  } else {
+    p.list_bg = hex(0x2a2a2e);
+    p.list_fg = hex(0xeeeeee);
+    p.list_dim = hex(0xa8a8a8);
+    p.row_focus = hex(0x34476e);
+    p.header_bg = hex(0x38383d);
+    p.bar_free = hex(0x45454b);
+    p.bar_used = AboutRgb{0.20, 0.35, 0.85};
+    p.bevel_dark = hex(0x161618);
+    p.bevel_light = hex(0x6a6a70);
+    p.text_on_free = hex(0xf0f0f0);
+    p.text_on_used = AboutRgb{1.0, 1.0, 1.0};
+  }
+  return p;
+}
+
+std::string about_theme_css(bool dark) {
+  if (!dark) return std::string();
+  return R"CSS(
+.platinum-list-frame {
+  background-color: #2a2a2e;
+  border-color: #161618 #5a5a60 #5a5a60 #161618;
+}
+.platinum-list,
+.platinum-list row,
+.platinum-list .app-row-bg,
+.platinum-list .app-row {
+  background-color: #2a2a2e;
+  color: #eeeeee;
+}
+.platinum-list label,
+.platinum-list row label {
+  color: #eeeeee;
+}
+.platinum-list label:disabled,
+.platinum-list row label:disabled {
+  color: #a8a8a8;
+}
+.platinum-list .app-row:focus {
+  background-color: #34476e;
+}
+.app-sort-header {
+  background-color: #38383d;
+  border-bottom: 1px solid #55555c;
+}
+.app-sort-header button {
+  background-color: #38383d;
+  color: #eeeeee;
+}
+.app-sort-header button:hover {
+  background-color: #46464d;
+}
+)CSS";
 }
 
 }  // namespace lundukeabout
