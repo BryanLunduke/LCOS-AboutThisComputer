@@ -3,7 +3,9 @@
 #include "about_logic.hpp"
 #include "system_info.hpp"
 
+#include <dlfcn.h>
 #include <gdk/gdkx.h>
+#include <unistd.h>
 #include <X11/Xlib.h>
 #include <X11/Xatom.h>
 #include <X11/Xutil.h>
@@ -1092,6 +1094,105 @@ bool window_xid_matches_pid(unsigned long xid, pid_t pid) {
   Display* dpy = GDK_DISPLAY_XDISPLAY(gdk);
   X11ErrorTrap trap(gdk);
   return get_net_wm_pid(dpy, static_cast<Window>(xid)) == pid;
+}
+
+namespace {
+
+// X-Resource 1.2 client-id query, loaded with dlopen so the package does not
+// need a new build dependency. The struct layouts are the stable libXRes ABI.
+struct XResClientIdSpecAbi {
+  XID client;
+  unsigned int mask;
+};
+struct XResClientIdValueAbi {
+  XResClientIdSpecAbi spec;
+  long length;
+  void* value;
+};
+constexpr unsigned int kXResClientIdPidMask = 1u << 1;
+using QueryClientIdsFn = int (*)(Display*, long, XResClientIdSpecAbi*, long*, XResClientIdValueAbi**);
+using GetIdPidFn = pid_t (*)(XResClientIdValueAbi*);
+using ClientIdsDestroyFn = void (*)(long, XResClientIdValueAbi*);
+using QueryExtFn = int (*)(Display*, int*, int*);
+using QueryVersionFn = int (*)(Display*, int*, int*);
+
+struct XResApi {
+  bool ok = false;
+  QueryExtFn query_ext = nullptr;
+  QueryVersionFn query_version = nullptr;
+  QueryClientIdsFn query_ids = nullptr;
+  GetIdPidFn get_pid = nullptr;
+  ClientIdsDestroyFn destroy = nullptr;
+};
+
+const XResApi& xres_api() {
+  static XResApi api = [] {
+    XResApi a;
+    void* h = dlopen("libXRes.so.1", RTLD_NOW | RTLD_LOCAL);
+    if (h == nullptr) return a;
+    a.query_ext = reinterpret_cast<QueryExtFn>(dlsym(h, "XResQueryExtension"));
+    a.query_version = reinterpret_cast<QueryVersionFn>(dlsym(h, "XResQueryVersion"));
+    a.query_ids = reinterpret_cast<QueryClientIdsFn>(dlsym(h, "XResQueryClientIds"));
+    a.get_pid = reinterpret_cast<GetIdPidFn>(dlsym(h, "XResGetClientPid"));
+    a.destroy = reinterpret_cast<ClientIdsDestroyFn>(dlsym(h, "XResClientIdsDestroy"));
+    a.ok = a.query_ext && a.query_version && a.query_ids && a.get_pid && a.destroy;
+    return a;
+  }();
+  return api;
+}
+
+std::string get_client_machine(Display* dpy, Window w) {
+  XTextProperty prop;
+  std::memset(&prop, 0, sizeof(prop));
+  std::string out;
+  if (XGetWMClientMachine(dpy, w, &prop) && prop.value != nullptr) {
+    if (prop.format == 8 && prop.nitems > 0 && prop.nitems < 256) {
+      out.assign(reinterpret_cast<const char*>(prop.value), prop.nitems);
+      const size_t nul = out.find('\0');
+      if (nul != std::string::npos) out.resize(nul);
+    }
+    XFree(prop.value);
+  }
+  return out;
+}
+
+}  // namespace
+
+WindowOwnerCheck check_window_owner(unsigned long xid, pid_t pid) {
+  WindowOwnerCheck out;
+  char host[256] = {};
+  if (gethostname(host, sizeof(host) - 1) == 0) out.local_host = host;
+  if (xid == 0 || pid <= 1) return out;
+  auto* gdk = gdk_display_get_default();
+  if (!gdk || !GDK_IS_X11_DISPLAY(gdk)) return out;
+  Display* dpy = GDK_DISPLAY_XDISPLAY(gdk);
+  X11ErrorTrap trap(gdk);
+  const Window w = static_cast<Window>(xid);
+  out.client_machine = get_client_machine(dpy, w);
+  const XResApi& api = xres_api();
+  int ev = 0, err = 0, major = 0, minor = 0;
+  if (api.ok && api.query_ext(dpy, &ev, &err) && api.query_version(dpy, &major, &minor) &&
+      (major > 1 || (major == 1 && minor >= 2))) {
+    XResClientIdSpecAbi spec;
+    spec.client = w;
+    spec.mask = kXResClientIdPidMask;
+    long count = 0;
+    XResClientIdValueAbi* values = nullptr;
+    if (api.query_ids(dpy, 1, &spec, &count, &values) == Success && values != nullptr) {
+      for (long i = 0; i < count; ++i) {
+        if (values[i].spec.mask & kXResClientIdPidMask) {
+          const pid_t p = api.get_pid(&values[i]);
+          if (p > 0) {
+            out.server_pid = p;
+            break;
+          }
+        }
+      }
+      api.destroy(count, values);
+    }
+  }
+  out.ownership = classify_pid_ownership(pid, out.server_pid, out.client_machine, out.local_host);
+  return out;
 }
 
 }  // namespace lundukeabout

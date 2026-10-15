@@ -465,10 +465,27 @@ struct ForceClosePrompt {
 // label; the mismatch line is kept when that class and the command differ.
 // Round 12 (A-1): window_count and window_titles say how many windows close
 // and which; with two or more windows the body lists their titles.
+// Round 14 (A-1): whether the X server confirms that the PID a window
+// advertises in _NET_WM_PID really owns that window.
+//  Verified: X-Resource reports the same PID for the window's client.
+//  Mismatch: X-Resource reports a different PID, or WM_CLIENT_MACHINE names
+//            another host. Force Close is refused.
+//  Unknown:  the server could not say (no X-Resource, or no PID for that
+//            client). Force Close warns and never claims the window closes.
+enum class PidOwnership { Verified, Mismatch, Unknown };
+PidOwnership classify_pid_ownership(pid_t advertised_pid, pid_t server_pid,
+                                    const std::string& client_machine,
+                                    const std::string& local_host);
+// Notice body when Force Close is refused for a Mismatch.
+std::string pid_mismatch_message(const std::string& row_name, pid_t advertised_pid,
+                                 pid_t server_pid, const std::string& client_machine,
+                                 const std::string& local_host);
+
 ForceClosePrompt force_close_prompt(const std::string& row_name, const std::string& command,
                                     pid_t pid, const std::string& window_class,
                                     bool window_still_there, int window_count = 0,
-                                    const std::vector<std::string>& window_titles = {});
+                                    const std::vector<std::string>& window_titles = {},
+                                    PidOwnership ownership = PidOwnership::Verified);
 
 // Round 12 (A-2): the line under a row's name listing its window titles.
 // Empty when there is no title, or a single title that only repeats the name.

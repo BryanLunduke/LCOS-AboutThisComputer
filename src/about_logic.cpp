@@ -1375,9 +1375,19 @@ std::string neutralize_title(const std::string& text) {
     else if (len == 3)
       cp = ((c & 0x0Fu) << 12) | ((static_cast<unsigned char>(text[i + 1]) & 0x3Fu) << 6) |
            (static_cast<unsigned char>(text[i + 2]) & 0x3Fu);
-    else cp = 0x10000;  // astral planes hold no bidi controls
+    else
+      cp = ((c & 0x07u) << 18) | ((static_cast<unsigned char>(text[i + 1]) & 0x3Fu) << 12) |
+           ((static_cast<unsigned char>(text[i + 2]) & 0x3Fu) << 6) |
+           (static_cast<unsigned char>(text[i + 3]) & 0x3Fu);
+    // Round 14 (A-2): zero-width, invisible and format characters are
+    // dropped too, so look-alike titles cannot hide extra characters.
     const bool bidi = (cp >= 0x202A && cp <= 0x202E) || (cp >= 0x2066 && cp <= 0x2069) ||
-                      cp == 0x200E || cp == 0x200F || cp == 0x061C;
+                      cp == 0x200E || cp == 0x200F || cp == 0x061C ||
+                      (cp >= 0x200B && cp <= 0x200D) || (cp >= 0x2060 && cp <= 0x2064) ||
+                      (cp >= 0x206A && cp <= 0x206F) || cp == 0xFEFF || cp == 0x00AD ||
+                      cp == 0x034F || cp == 0x180E || cp == 0x115F || cp == 0x1160 ||
+                      cp == 0x3164 || cp == 0xFFA0 || (cp >= 0xFFF9 && cp <= 0xFFFB) ||
+                      (cp >= 0x1D173 && cp <= 0x1D17A) || (cp >= 0xE0000 && cp <= 0xE007F);
     const bool control = cp < 0x20 || cp == 0x7F || (cp >= 0x80 && cp <= 0x9F) || cp == 0x2028 ||
                          cp == 0x2029;
     if (bidi) {
@@ -1407,10 +1417,40 @@ std::string row_titles_line(const std::string& row_name, int window_count,
   return out;
 }
 
+PidOwnership classify_pid_ownership(pid_t advertised_pid, pid_t server_pid,
+                                    const std::string& client_machine,
+                                    const std::string& local_host) {
+  if (!client_machine.empty() && !local_host.empty() && client_machine != local_host) {
+    // A window from another machine (ssh -X, remote X): its PID means
+    // nothing here.
+    return PidOwnership::Mismatch;
+  }
+  if (server_pid > 0) {
+    return server_pid == advertised_pid ? PidOwnership::Verified : PidOwnership::Mismatch;
+  }
+  return PidOwnership::Unknown;
+}
+
+std::string pid_mismatch_message(const std::string& row_name, pid_t advertised_pid,
+                                 pid_t server_pid, const std::string& client_machine,
+                                 const std::string& local_host) {
+  const std::string shown = prompt_text(row_name.empty() ? std::string("This window") : row_name);
+  std::string out = "\"" + shown + "\" says it belongs to PID " + std::to_string(advertised_pid) + ", ";
+  if (!client_machine.empty() && !local_host.empty() && client_machine != local_host) {
+    out += "but it comes from another computer (\"" + prompt_text(client_machine) +
+           "\"), so that PID is not a program on this computer.";
+  } else {
+    out += "but the display server says the window belongs to PID " + std::to_string(server_pid) + ".";
+  }
+  out += " Nothing was closed. Close the window from its own menu instead.";
+  return out;
+}
+
 ForceClosePrompt force_close_prompt(const std::string& row_name, const std::string& command,
                                     pid_t pid, const std::string& window_class,
                                     bool window_still_there, int window_count,
-                                    const std::vector<std::string>& window_titles) {
+                                    const std::vector<std::string>& window_titles,
+                                    PidOwnership ownership) {
   const std::string shown = prompt_text(!row_name.empty() ? row_name : command);
   const std::string comm = prompt_text(command.empty() ? "unknown" : command);
   const std::string klass = prompt_text(window_class);
@@ -1426,6 +1466,15 @@ ForceClosePrompt force_close_prompt(const std::string& row_name, const std::stri
     prompt.secondary +=
         "\nThe listed window is already gone. The process is still closed when its command and "
         "start time match this refresh.";
+  }
+  if (ownership != PidOwnership::Verified) {
+    // Round 14 (A-1): without proof that this process owns the window,
+    // never promise that the window will close.
+    prompt.secondary +=
+        "\n\nAbout This Computer could not confirm that this process owns the window. Force Close "
+        "will end PID " + std::to_string(pid) + " (" + comm +
+        "), but the window may stay open.";
+    return prompt;
   }
   const int count = std::max(window_count, static_cast<int>(window_titles.size()));
   if (count >= 2) {

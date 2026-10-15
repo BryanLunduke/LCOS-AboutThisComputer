@@ -81,4 +81,15 @@ class AppListRefresh {
 // rest of the client list.
 bool window_xid_matches_pid(unsigned long xid, pid_t pid);
 
+// Round 14 (A-1): ask the X server which process owns window `xid`
+// (X-Resource client PID query, libXRes loaded at run time) and compare it,
+// and WM_CLIENT_MACHINE against this host, with the advertised `pid`.
+struct WindowOwnerCheck {
+  PidOwnership ownership = PidOwnership::Unknown;
+  pid_t server_pid = 0;          // 0 when the server could not say
+  std::string client_machine;    // WM_CLIENT_MACHINE, may be empty
+  std::string local_host;
+};
+WindowOwnerCheck check_window_owner(unsigned long xid, pid_t pid);
+
 }  // namespace lundukeabout

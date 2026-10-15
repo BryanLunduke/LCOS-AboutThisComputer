@@ -1,10 +1,10 @@
 #!/bin/sh
-# Build lunduke-about_0.9.4-5_amd64.deb into packaging/debs/ (repo-local).
+# Build lunduke-about_0.9.4-6_amd64.deb into packaging/debs/ (repo-local).
 # Does NOT seed lcos-live-07 (Phil seeds by hand into packages.chroot).
 set -eu
 
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
-VERSION="0.9.4-5"
+VERSION="0.9.4-6"
 PKGNAME="lunduke-about_${VERSION}_amd64"
 BUILD="$ROOT/build-deb"
 DEST="$ROOT/packaging/src/lunduke-about"
@@ -57,6 +57,7 @@ Installed-Size: ${SIZE}
 Maintainer: LCOS <lcos@lunduke.com>
 Homepage: https://lunduke.com
 Depends: ${SHLIBS_DEPS}, desktop-file-utils, gtk-update-icon-cache
+Recommends: libxres1
 Description: About This Computer for LCOS (Mac OS 9 style)
  Classic Mac OS 9–inspired About This Computer window for the Lunduke
  Computer Operating System. Shows LCOS version, RAM, CPU, GPU, a
