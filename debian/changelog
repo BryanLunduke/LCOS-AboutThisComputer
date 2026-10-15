@@ -1,3 +1,11 @@
+lunduke-about (0.9.4-8) unstable; urgency=medium
+
+  * Remove the duplicate Jesse Buschhaus added at the end of the
+    Supporters list in 0.9.4-7; he keeps his original 8th place. The list
+    now ends pondo_hound, Bobby Hollingsworth, Otto R. Doll (13 names).
+
+ -- Phil <phil@brushpad.local>  Thu, 15 Oct 2026 13:53:09 +0000
+
 lunduke-about (0.9.4-7) unstable; urgency=medium
 
   * Add pondo_hound, Bobby Hollingsworth, Otto R. Doll and Jesse Buschhaus
