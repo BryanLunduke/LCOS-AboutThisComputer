@@ -2190,8 +2190,9 @@ int main() {
   }
 
   // Supporters: Jon Darrow is inserted at index 1. Steve Rockefeller,
-  // previously second, moves to index 2. The list ends Jack Beckman,
-  // Jesse Buschhaus, Bob Lorna, AtrusBatleth (10 entries).
+  // previously second, moves to index 2. 0.9.4-7 appends pondo_hound,
+  // Bobby Hollingsworth, Otto R. Doll, Jesse Buschhaus at the end, as
+  // ordered (Jesse Buschhaus also stays at index 7) (14 entries).
   // The file and the built-in fallback stay the same list.
   {
     const std::vector<std::string> expected = {
@@ -2205,8 +2206,12 @@ int main() {
         "Jesse Buschhaus",
         "Bob Lorna",
         "AtrusBatleth",
+        "pondo_hound",
+        "Bobby Hollingsworth",
+        "Otto R. Doll",
+        "Jesse Buschhaus",
     };
-    constexpr std::size_t kCount = 10;
+    constexpr std::size_t kCount = 14;
     std::string path;
     if (const char* env = std::getenv("LUNDUKE_SUPPORTERS_TXT")) path = env;
     if (path.empty()) {
@@ -2224,14 +2229,16 @@ int main() {
     CHECK(entries[0] == "\"Fuzzy\"");
     CHECK(entries[1] == "Jon Darrow");
     CHECK(entries[2] == "Steve Rockefeller");
-    CHECK(entries[entries.size() - 3] == "Jesse Buschhaus");
-    CHECK(entries[entries.size() - 2] == "Bob Lorna");
-    CHECK(entries.back() == "AtrusBatleth");
+    CHECK(entries[entries.size() - 4] == "pondo_hound");
+    CHECK(entries[entries.size() - 3] == "Bobby Hollingsworth");
+    CHECK(entries[entries.size() - 2] == "Otto R. Doll");
+    CHECK(entries.back() == "Jesse Buschhaus");
     CHECK(entries == expected);
     CHECK(builtin_supporter_entries() == expected);
     CHECK(join_supporter_entries(builtin_supporter_entries()) ==
           "\"Fuzzy\", Jon Darrow, Steve Rockefeller, Steven P., Chris Hammond, "
-          "Mike Beasley, Jack Beckman, Jesse Buschhaus, Bob Lorna, AtrusBatleth");
+          "Mike Beasley, Jack Beckman, Jesse Buschhaus, Bob Lorna, AtrusBatleth, "
+          "pondo_hound, Bobby Hollingsworth, Otto R. Doll, Jesse Buschhaus");
   }
 
   // Round 7: desktop Name, prettified class, row-tree rollup, refresh pace.

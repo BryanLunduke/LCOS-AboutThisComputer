@@ -1,3 +1,11 @@
+lunduke-about (0.9.4-7) unstable; urgency=medium
+
+  * Add pondo_hound, Bobby Hollingsworth, Otto R. Doll and Jesse Buschhaus
+    to the end of the Supporters list (data/supporters.txt and the
+    built-in fallback).
+
+ -- Phil <phil@brushpad.local>  Thu, 15 Oct 2026 13:47:50 +0000
+
 lunduke-about (0.9.4-6) unstable; urgency=medium
 
   * Fix round 14 review findings: before Force Close, the display server

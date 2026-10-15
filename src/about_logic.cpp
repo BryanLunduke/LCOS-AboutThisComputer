@@ -1595,6 +1595,10 @@ std::vector<std::string> builtin_supporter_entries() {
       "Jesse Buschhaus",
       "Bob Lorna",
       "AtrusBatleth",
+      "pondo_hound",
+      "Bobby Hollingsworth",
+      "Otto R. Doll",
+      "Jesse Buschhaus",
   };
 }
 
