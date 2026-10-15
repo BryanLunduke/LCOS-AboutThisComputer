@@ -104,8 +104,14 @@ AppRow::AppRow(const AppEntry& entry) : entry_(entry) {
   menu_attached_ = true;
   item_.signal_activate().connect(sigc::mem_fun(*this, &AppRow::on_force_close));
   signal_popup_menu().connect(sigc::mem_fun(*this, &AppRow::on_popup_menu));
-  menu_.signal_deactivate().connect([this]() { menu_posted_ = false; });
-  menu_.signal_selection_done().connect([this]() { menu_posted_ = false; });
+  menu_.signal_deactivate().connect([this]() {
+    menu_posted_ = false;
+    set_row_tooltips(true);
+  });
+  menu_.signal_selection_done().connect([this]() {
+    menu_posted_ = false;
+    set_row_tooltips(true);
+  });
   menu_.append(item_);
 
   if (entry.icon) shown_icon_ = entry.icon;
@@ -155,6 +161,7 @@ bool AppRow::force_close_item_sensitive() const {
 void AppRow::dismiss_menu() {
   menu_.popdown();
   menu_posted_ = false;
+  set_row_tooltips(true);
 }
 
 void AppRow::activate_force_close_item() { on_force_close(); }
@@ -205,6 +212,7 @@ void AppRow::apply_entry_text() {
   name_.set_tooltip_text(shown);
   detail_.set_tooltip_text(shown);
   set_tooltip_text(shown);
+  if (menu_posted_) set_row_tooltips(false);
   // LCOS System stays the same colour as the other rows. Force Close is
   // still refused: the row is marked system and it has no process id.
   const bool dim_label = entry_.protected_app && !entry_.lcos_system;
@@ -252,6 +260,25 @@ void AppRow::reveal_row() {
   adj->set_value(target);
 }
 
+void AppRow::set_row_tooltips(bool enabled) {
+  tooltips_enabled_ = enabled;
+  name_.set_has_tooltip(enabled);
+  detail_.set_has_tooltip(enabled);
+  titles_.set_has_tooltip(false);
+  set_has_tooltip(enabled);
+  if (!enabled) {
+    if (auto display = get_display()) {
+      Gtk::Tooltip::trigger_tooltip_query(display);
+    }
+    if (auto win = get_window()) {
+      // Hide the tooltip window that is already up (GTK keeps it for its
+      // timeout otherwise).
+      GtkWidget* top = gtk_widget_get_toplevel(GTK_WIDGET(gobj()));
+      if (top) gtk_widget_trigger_tooltip_query(top);
+    }
+  }
+}
+
 void AppRow::popup_force_close_menu(const GdkEvent* event) {
   if (!menu_attached_) {
     menu_.attach_to_widget(*this);
@@ -260,6 +287,8 @@ void AppRow::popup_force_close_menu(const GdkEvent* event) {
   rebuild_menu_item();
   menu_.show_all();
   menu_posted_ = true;
+  // Round 13 (A-2): the row tooltip must not sit on top of the menu.
+  set_row_tooltips(false);
   // The row's allocation is relative to the list. popup_at_widget applies
   // that allocation to this event box's own GdkWindow, so the row's y is
   // added twice and the menu opens below the window. Anchor to the row

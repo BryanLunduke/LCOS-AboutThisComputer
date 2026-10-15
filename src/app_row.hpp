@@ -16,6 +16,7 @@ public:
   pid_t pid() const { return entry_.pid; }
   const AppEntry& entry() const { return entry_; }
   bool menu_posted() const { return menu_posted_; }
+  bool tooltips_enabled() const { return tooltips_enabled_; }
   void update_entry(const AppEntry& entry);
   // A-1 (round 11): row fill for a dark theme; shared by every row.
   static void set_dark_theme(bool dark);
@@ -72,6 +73,8 @@ private:
   Gtk::MenuItem item_;
   bool menu_attached_ = false;
   bool menu_posted_ = false;
+  bool tooltips_enabled_ = true;
+  void set_row_tooltips(bool enabled);
 };
 
 }  // namespace lundukeabout

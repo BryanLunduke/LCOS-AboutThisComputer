@@ -472,6 +472,10 @@ ForceClosePrompt force_close_prompt(const std::string& row_name, const std::stri
 
 // Round 12 (A-2): the line under a row's name listing its window titles.
 // Empty when there is no title, or a single title that only repeats the name.
+// Round 13 (A-1): strip bidi controls and replace control characters in an
+// untrusted window title so it cannot reorder or spoof the shown text.
+std::string neutralize_title(const std::string& text);
+
 std::string row_titles_line(const std::string& row_name, int window_count,
                             const std::vector<std::string>& window_titles);
 
