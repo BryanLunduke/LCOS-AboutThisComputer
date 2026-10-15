@@ -1,3 +1,12 @@
+lunduke-about (0.9.4-5) unstable; urgency=medium
+
+  * Fix round 13 review findings: bidi control characters are removed and
+    control characters replaced in window titles, so a title cannot
+    reorder or spoof the row text or the Force Close list (A-1); the row
+    tooltip is hidden while the Force Close menu is open (A-2).
+
+ -- Phil <phil@brushpad.local>  Thu, 15 Oct 2026 03:08:02 +0000
+
 lunduke-about (0.9.4-4) unstable; urgency=medium
 
   * Fix round 12 review findings: the Force Close warning says how many

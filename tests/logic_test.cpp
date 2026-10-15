@@ -2373,6 +2373,43 @@ int main() {
     CHECK(refresh_interval_ms(RefreshPace::Live) == 3000);
   }
 
+  // Round 13 (A-1): bidi and control characters in window titles.
+  {
+    using lundukeabout::WindowKind;
+    CHECK(neutralize_title("evil\u202Etxt.exe") == "eviltxt.exe");
+    CHECK(neutralize_title("a\u2066b\u2067c\u2068d\u2069e\u202Af\u202Bg\u202Ch\u202Di") == "abcdefghi");
+    CHECK(neutralize_title("x\u200Ey\u200Fz\u061C!") == "xyz!");
+    CHECK(neutralize_title("line1\nline2\tx\x7f\u0085y\u2028z") == "line1 line2 x  y z");
+    CHECK(neutralize_title("\u0645\u0631\u062D\u0628\u0627 \u57ce\u5e02 \U0001F3D9 caf\u00e9") ==
+          "\u0645\u0631\u062D\u0628\u0627 \u57ce\u5e02 \U0001F3D9 caf\u00e9");
+    CHECK(neutralize_title("plain") == "plain");
+    auto a = fact(0x300, 81000, true, WindowKind::Normal);
+    a.res_class = "Multi";
+    a.title = "evil\u202Etxt.exe";
+    a.comm = "multi";
+    auto b = fact(0x400, 81000, true, WindowKind::Normal);
+    b.res_class = "Multi";
+    b.title = "second\u2067 win\ndow";
+    b.comm = "multi";
+    const auto rows = group_windows({a, b});
+    CHECK(rows.size() == 1);
+    if (rows.size() == 1) {
+      for (const auto& t : rows[0].window_titles) {
+        CHECK(t.find("\u202E") == std::string::npos && t.find("\u2067") == std::string::npos &&
+              t.find('\n') == std::string::npos);
+      }
+      CHECK(rows[0].tooltip.find("\u202E") == std::string::npos);
+      const ForceClosePrompt p = force_close_prompt(rows[0].name, "multi", 81000, "Multi", true,
+                                                    rows[0].window_count, rows[0].window_titles);
+      CHECK(p.secondary.find("\u201ceviltxt.exe\u201d") != std::string::npos);
+      CHECK(p.secondary.find("\u202E") == std::string::npos);
+      const std::string line =
+          row_titles_line(rows[0].name, rows[0].window_count, rows[0].window_titles);
+      CHECK(line.find("eviltxt.exe") != std::string::npos);
+      CHECK(line.find("\u202E") == std::string::npos);
+    }
+  }
+
   if (g_failures != 0) {
     std::cerr << g_failures << " failure(s)\n";
     return 1;

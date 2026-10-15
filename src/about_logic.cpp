@@ -930,11 +930,11 @@ std::vector<GroupedApp> group_windows(const std::vector<WindowFact>& windows,
     g.has_pid = best->has_pid && best->pid > 1;
     g.pid = g.has_pid ? best->pid : 0;
     std::string desktop_icon;
-    g.name = display_name_for_window(*best, desktop_apps, &desktop_icon);
+    g.name = neutralize_title(display_name_for_window(*best, desktop_apps, &desktop_icon));
     g.desktop_icon = std::move(desktop_icon);
     if (g.name.empty()) continue;
     if (utf8_valid(best->res_class) && !best->res_class.empty()) g.class_name = best->res_class;
-    if (utf8_valid(best->title) && !best->title.empty()) g.tooltip = best->title;
+    if (utf8_valid(best->title) && !best->title.empty()) g.tooltip = neutralize_title(best->title);
     else g.tooltip = g.name;
     g.comm = best->comm;
     g.start_ticks = best->start_ticks;
@@ -959,7 +959,7 @@ std::vector<GroupedApp> group_windows(const std::vector<WindowFact>& windows,
     if (!g.has_pid && g.protect_reason.empty()) g.protect_reason = "No process ID";
     g.window_count = static_cast<int>(pool.size());
     for (const WindowFact* w : pool) {
-      if (!w->title.empty() && utf8_valid(w->title)) g.window_titles.push_back(w->title);
+      if (!w->title.empty() && utf8_valid(w->title)) g.window_titles.push_back(neutralize_title(w->title));
     }
     out.push_back(std::move(g));
   }
@@ -1353,6 +1353,43 @@ std::string short_title(const std::string& title, size_t max_chars) {
   }
   if (chars <= max_chars || max_chars < 2) return flat;
   return flat.substr(0, cut) + "\u2026";
+}
+
+std::string neutralize_title(const std::string& text) {
+  // Round 13 (A-1): a window title is untrusted. Drop bidi embedding,
+  // override, isolate and mark characters (they can flip "evil\u202Etxt.exe"
+  // into "evilexe.txt" and swallow the closing quote), and turn C0/C1
+  // controls and line/paragraph separators into spaces. Invalid UTF-8 is
+  // returned unchanged; callers already reject it.
+  if (!utf8_valid(text)) return text;
+  std::string out;
+  out.reserve(text.size());
+  size_t i = 0;
+  while (i < text.size()) {
+    const unsigned char c = static_cast<unsigned char>(text[i]);
+    size_t len = c < 0x80 ? 1 : (c >> 5) == 0x6 ? 2 : (c >> 4) == 0xE ? 3 : 4;
+    if (i + len > text.size()) len = text.size() - i;
+    unsigned cp = 0;
+    if (len == 1) cp = c;
+    else if (len == 2) cp = ((c & 0x1Fu) << 6) | (static_cast<unsigned char>(text[i + 1]) & 0x3Fu);
+    else if (len == 3)
+      cp = ((c & 0x0Fu) << 12) | ((static_cast<unsigned char>(text[i + 1]) & 0x3Fu) << 6) |
+           (static_cast<unsigned char>(text[i + 2]) & 0x3Fu);
+    else cp = 0x10000;  // astral planes hold no bidi controls
+    const bool bidi = (cp >= 0x202A && cp <= 0x202E) || (cp >= 0x2066 && cp <= 0x2069) ||
+                      cp == 0x200E || cp == 0x200F || cp == 0x061C;
+    const bool control = cp < 0x20 || cp == 0x7F || (cp >= 0x80 && cp <= 0x9F) || cp == 0x2028 ||
+                         cp == 0x2029;
+    if (bidi) {
+      // dropped
+    } else if (control) {
+      out += ' ';
+    } else {
+      out.append(text, i, len);
+    }
+    i += len;
+  }
+  return out;
 }
 
 std::string row_titles_line(const std::string& row_name, int window_count,

@@ -209,10 +209,17 @@ void test_menu_key() {
   drain();
   CHECK(row->is_focus());
 
+  CHECK(row->get_has_tooltip());
   send_key(*row, GDK_KEY_Menu, 0);
   drain();
   CHECK(row->menu_posted());
   CHECK(!other->menu_posted());
+  // Round 13 (A-2): no row tooltip while the Force Close menu is up.
+  CHECK(!row->tooltips_enabled());
+  CHECK(!row->get_has_tooltip());
+  row->dismiss_menu();
+  drain();
+  CHECK(row->tooltips_enabled() && row->get_has_tooltip());
 
   window.hide();
   drain();
