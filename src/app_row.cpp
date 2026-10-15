@@ -65,7 +65,22 @@ AppRow::AppRow(const AppEntry& entry) : entry_(entry) {
   name_.set_xalign(0.0f);
   name_.set_ellipsize(Pango::ELLIPSIZE_END);
   name_.set_hexpand(true);
-  box_.pack_start(name_, Gtk::PACK_EXPAND_WIDGET);
+  titles_.set_halign(Gtk::ALIGN_START);
+  titles_.set_xalign(0.0f);
+  titles_.set_ellipsize(Pango::ELLIPSIZE_END);
+  titles_.set_no_show_all(true);
+  titles_.get_style_context()->add_class("dim-label");
+  {
+    Pango::AttrList attrs;
+    auto scale = Pango::Attribute::create_attr_scale(0.85);
+    attrs.insert(scale);
+    titles_.set_attributes(attrs);
+  }
+  name_box_.set_valign(Gtk::ALIGN_CENTER);
+  name_box_.set_hexpand(true);
+  name_box_.pack_start(name_, Gtk::PACK_SHRINK);
+  name_box_.pack_start(titles_, Gtk::PACK_SHRINK);
+  box_.pack_start(name_box_, Gtk::PACK_EXPAND_WIDGET);
 
   // Shared-name token. It does not ellipsize: the name column gives up
   // width first, so two long rows stay visually distinct.
@@ -166,8 +181,23 @@ void AppRow::apply_entry_text() {
     detail_.set_text(utf8_text(entry_.distinguish));
     detail_.show();
   }
+  const std::string line = row_titles_line(entry_.name, entry_.window_count, entry_.window_titles);
+  if (line.empty()) {
+    titles_.set_text("");
+    titles_.hide();
+  } else {
+    titles_.set_text(utf8_text(line));
+    titles_.show();
+  }
   const bool closable = can_force_close();
-  const std::string title = entry_.tooltip.empty() ? entry_.name : entry_.tooltip;
+  std::string title = entry_.tooltip.empty() ? entry_.name : entry_.tooltip;
+  if (entry_.window_titles.size() >= 2) {
+    title.clear();
+    for (size_t i = 0; i < entry_.window_titles.size() && i < 10; ++i) {
+      if (i > 0) title += "\n";
+      title += short_title(entry_.window_titles[i], 80);
+    }
+  }
   const std::string tip =
       row_tooltip_text(title, closable, closable ? std::string() : blocked_reason(),
                        closable ? entry_.distinguish : std::string());
@@ -179,6 +209,7 @@ void AppRow::apply_entry_text() {
   // still refused: the row is marked system and it has no process id.
   const bool dim_label = entry_.protected_app && !entry_.lcos_system;
   name_.set_sensitive(!dim_label);
+  titles_.set_sensitive(!dim_label);
   detail_.set_sensitive(!dim_label);
   rebuild_menu_item();
 }

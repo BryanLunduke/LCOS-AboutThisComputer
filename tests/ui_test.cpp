@@ -1565,6 +1565,30 @@ static int check_dark_theme() {
   return 0;
 }
 
+// Round 12 (A-2): a row standing for two windows shows both titles under
+// its name; a single window whose title repeats the name shows nothing.
+void test_row_window_titles() {
+  lundukeabout::AppEntry entry;
+  entry.name = "Two";
+  entry.pid = 71178;
+  entry.rss_known = true;
+  entry.window_count = 2;
+  entry.window_titles = {"Unsaved Letter", "Tax Spreadsheet"};
+  auto* row = Gtk::manage(new lundukeabout::AppRow(entry));
+  CHECK(row->titles_label().get_visible());
+  CHECK(row->titles_label().get_text() == "2 windows: Unsaved Letter \u00b7 Tax Spreadsheet");
+  CHECK(row->get_tooltip_text().find("Tax Spreadsheet") != Glib::ustring::npos);
+  lundukeabout::AppEntry plain;
+  plain.name = "Terminal";
+  plain.pid = 42;
+  plain.window_count = 1;
+  plain.window_titles = {"Terminal"};
+  auto* row2 = Gtk::manage(new lundukeabout::AppRow(plain));
+  CHECK(!row2->titles_label().get_visible());
+  delete row;
+  delete row2;
+}
+
 int main(int argc, char** argv) {
   if (!gtk_init_check(&argc, &argv)) {
     std::cerr << "Needs X11\n";
@@ -1592,6 +1616,7 @@ int main(int argc, char** argv) {
   test_sort_headers_and_system_row();
   test_gio_desktop_names();
   test_proc_scan_cost();
+  test_row_window_titles();
   if (g_failures != 0) {
     std::cerr << g_failures << " failure(s)\n";
     return 1;
