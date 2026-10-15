@@ -313,6 +313,10 @@ struct GroupedApp {
   // Icon name from the desktop entry that supplied `name`. Empty when the
   // row fell back to a prettified class or a title.
   std::string desktop_icon;
+  // Round 12 (A-1, A-2): every normal window this row stands for, and the
+  // valid UTF-8 titles among them, in window-list order.
+  int window_count = 0;
+  std::vector<std::string> window_titles;
 };
 
 // One row per PID (or per XID when the window has no PID). The representative
@@ -459,9 +463,20 @@ struct ForceClosePrompt {
 // Title uses the row the user clicked. The body names the command and PID
 // in ordinary language. window_class is the raw class, not a disambiguated
 // label; the mismatch line is kept when that class and the command differ.
+// Round 12 (A-1): window_count and window_titles say how many windows close
+// and which; with two or more windows the body lists their titles.
 ForceClosePrompt force_close_prompt(const std::string& row_name, const std::string& command,
                                     pid_t pid, const std::string& window_class,
-                                    bool window_still_there);
+                                    bool window_still_there, int window_count = 0,
+                                    const std::vector<std::string>& window_titles = {});
+
+// Round 12 (A-2): the line under a row's name listing its window titles.
+// Empty when there is no title, or a single title that only repeats the name.
+std::string row_titles_line(const std::string& row_name, int window_count,
+                            const std::vector<std::string>& window_titles);
+
+// One line, at most max_chars characters (UTF-8 aware), with an ellipsis.
+std::string short_title(const std::string& title, size_t max_chars);
 
 // One supporter per non-empty, non-comment line. A leading # is a comment.
 // Blank lines are skipped. The About header uses this same read.

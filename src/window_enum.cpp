@@ -1019,6 +1019,8 @@ void AppListRefresh::Impl::assemble() {
     entry.comm = g.comm;
     entry.class_name = g.class_name;
     entry.distinguish = g.distinguish;
+    entry.window_count = g.window_count;
+    entry.window_titles = g.window_titles;
     entry.desktop_icon = g.desktop_icon;
     entry.start_ticks = g.start_ticks;
     entry.identity_ok = g.identity_ok;

@@ -60,6 +60,12 @@ private:
   Gtk::Box box_{Gtk::ORIENTATION_HORIZONTAL, 8};
   Gtk::Image icon_;
   Gtk::Label name_;
+  // Round 12 (A-2): window titles under the name.
+  Gtk::Box name_box_{Gtk::ORIENTATION_VERTICAL, 0};
+  Gtk::Label titles_;
+public:
+  const Gtk::Label& titles_label() const { return titles_; }
+private:
   Gtk::Label detail_;
   Gtk::Label mem_label_;
   Gtk::Menu menu_;

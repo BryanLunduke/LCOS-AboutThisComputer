@@ -1386,7 +1386,8 @@ void MainWindow::on_force_close(const AppEntry& entry_ref) {
 
   const bool window_still_there = window_xid_matches_pid(entry.xid, entry.pid);
   const ForceClosePrompt prompt = force_close_prompt(
-      entry.name, entry.comm, entry.pid, entry.class_name, window_still_there);
+      entry.name, entry.comm, entry.pid, entry.class_name, window_still_there, entry.window_count,
+      entry.window_titles);
   Gtk::MessageDialog dlg(*this, prompt.primary, false, Gtk::MESSAGE_WARNING, Gtk::BUTTONS_NONE,
                          true);
   dlg.set_secondary_text(prompt.secondary);

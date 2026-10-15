@@ -1,3 +1,12 @@
+lunduke-about (0.9.4-4) unstable; urgency=medium
+
+  * Fix round 12 review findings: the Force Close warning says how many
+    windows will close and lists their titles (A-1); a row standing for
+    several windows, or a window whose title differs from the app name,
+    shows the title(s) under the name and in the tooltip (A-2).
+
+ -- Phil <phil@brushpad.local>  Wed, 14 Oct 2026 01:43:39 +0000
+
 lunduke-about (0.9.4-3) unstable; urgency=medium
 
   * Fix round 11 review finding A-1: in a dark theme the application list,

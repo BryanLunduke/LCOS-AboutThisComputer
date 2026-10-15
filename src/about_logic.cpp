@@ -957,6 +957,10 @@ std::vector<GroupedApp> group_windows(const std::vector<WindowFact>& windows,
       }
     }
     if (!g.has_pid && g.protect_reason.empty()) g.protect_reason = "No process ID";
+    g.window_count = static_cast<int>(pool.size());
+    for (const WindowFact* w : pool) {
+      if (!w->title.empty() && utf8_valid(w->title)) g.window_titles.push_back(w->title);
+    }
     out.push_back(std::move(g));
   }
   disambiguate_row_names(out);
@@ -1334,9 +1338,42 @@ bool same_name(const std::string& name, const std::string& comm) {
 
 }  // namespace
 
+std::string short_title(const std::string& title, size_t max_chars) {
+  std::string flat = prompt_text(title);
+  for (char& c : flat) {
+    if (c == '\n' || c == '\r' || c == '\t') c = ' ';
+  }
+  // flat is valid UTF-8 or ASCII here. Count code points (lead bytes).
+  size_t chars = 0;
+  size_t cut = flat.size();
+  for (size_t i = 0; i < flat.size(); ++i) {
+    if ((static_cast<unsigned char>(flat[i]) & 0xC0) == 0x80) continue;
+    if (chars == max_chars - 1 && cut == flat.size()) cut = i;
+    ++chars;
+  }
+  if (chars <= max_chars || max_chars < 2) return flat;
+  return flat.substr(0, cut) + "\u2026";
+}
+
+std::string row_titles_line(const std::string& row_name, int window_count,
+                            const std::vector<std::string>& window_titles) {
+  if (window_titles.empty()) return std::string();
+  if (window_count <= 1 && window_titles.size() == 1 && same_name(window_titles[0], row_name)) {
+    return std::string();
+  }
+  std::string out;
+  if (window_count >= 2) out = std::to_string(window_count) + " windows: ";
+  for (size_t i = 0; i < window_titles.size(); ++i) {
+    if (i > 0) out += " \u00b7 ";
+    out += short_title(window_titles[i], 60);
+  }
+  return out;
+}
+
 ForceClosePrompt force_close_prompt(const std::string& row_name, const std::string& command,
                                     pid_t pid, const std::string& window_class,
-                                    bool window_still_there) {
+                                    bool window_still_there, int window_count,
+                                    const std::vector<std::string>& window_titles) {
   const std::string shown = prompt_text(!row_name.empty() ? row_name : command);
   const std::string comm = prompt_text(command.empty() ? "unknown" : command);
   const std::string klass = prompt_text(window_class);
@@ -1352,6 +1389,30 @@ ForceClosePrompt force_close_prompt(const std::string& row_name, const std::stri
     prompt.secondary +=
         "\nThe listed window is already gone. The process is still closed when its command and "
         "start time match this refresh.";
+  }
+  const int count = std::max(window_count, static_cast<int>(window_titles.size()));
+  if (count >= 2) {
+    prompt.secondary += "\n\nAll " + std::to_string(count) + " of its windows will close";
+    if (!window_titles.empty()) {
+      prompt.secondary += ":";
+      const size_t shown_max = 6;
+      for (size_t i = 0; i < window_titles.size() && i < shown_max; ++i) {
+        prompt.secondary += "\n\u2022 \u201c" + short_title(window_titles[i], 60) + "\u201d";
+      }
+      if (window_titles.size() > shown_max) {
+        prompt.secondary += "\n\u2022 \u2026and " + std::to_string(window_titles.size() - shown_max) +
+                            " more";
+      }
+      const int untitled = count - static_cast<int>(window_titles.size());
+      if (untitled > 0) {
+        prompt.secondary += "\n\u2022 " + std::to_string(untitled) +
+                            (untitled == 1 ? " window without a title" : " windows without a title");
+      }
+    } else {
+      prompt.secondary += ".";
+    }
+  } else if (window_titles.size() == 1 && !same_name(window_titles[0], shown)) {
+    prompt.secondary += "\n\nIts window \u201c" + short_title(window_titles[0], 60) + "\u201d will close.";
   }
   return prompt;
 }

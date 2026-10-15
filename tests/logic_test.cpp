@@ -1072,6 +1072,57 @@ int main() {
     CHECK(matched.primary.find("Firefox") != std::string::npos);
   }
 
+  // Round 12 (A-1, A-2): the r12 probe (two.c) is one process with two
+  // windows, "Unsaved Letter" and "Tax Spreadsheet".
+  {
+    using lundukeabout::WindowKind;
+    auto a = fact(0x100, 71178, true, WindowKind::Normal);
+    a.res_class = "Two";
+    a.title = "Unsaved Letter";
+    a.comm = "two";
+    auto b = fact(0x200, 71178, true, WindowKind::Normal);
+    b.res_class = "Two";
+    b.title = "Tax Spreadsheet";
+    b.comm = "two";
+    const auto rows = group_windows({a, b});
+    CHECK(rows.size() == 1);
+    if (rows.size() == 1) {
+      CHECK(rows[0].window_count == 2);
+      CHECK(rows[0].window_titles.size() == 2);
+      const ForceClosePrompt p = force_close_prompt(rows[0].name, "two", 71178, "Two", true,
+                                                    rows[0].window_count, rows[0].window_titles);
+      std::cout << p.secondary << "\n";
+      CHECK(p.secondary.find("All 2 of its windows will close") != std::string::npos);
+      CHECK(p.secondary.find("\u201cUnsaved Letter\u201d") != std::string::npos);
+      CHECK(p.secondary.find("\u201cTax Spreadsheet\u201d") != std::string::npos);
+      const std::string line = row_titles_line(rows[0].name, rows[0].window_count, rows[0].window_titles);
+      CHECK(line == "2 windows: Unsaved Letter \u00b7 Tax Spreadsheet");
+    }
+    // One window: the title is named; a title equal to the row name is not repeated.
+    const ForceClosePrompt one = force_close_prompt("Paint", "lunduke-paint", 5, "Paint", true, 1,
+                                                    {"holiday.ora"});
+    CHECK(one.secondary.find("Its window \u201choliday.ora\u201d will close.") != std::string::npos);
+    CHECK(row_titles_line("Paint", 1, {"holiday.ora"}) == "holiday.ora");
+    CHECK(row_titles_line("Terminal", 1, {"terminal"}).empty());
+    CHECK(row_titles_line("X", 0, {}).empty());
+    // Old call form (no window facts) is unchanged.
+    const ForceClosePrompt old = force_close_prompt("GoodApp", "testwin", 1, "GoodApp", true);
+    CHECK(old.secondary.find("windows will close") == std::string::npos);
+    // Many windows: list capped, untitled counted, long titles cut.
+    std::vector<std::string> many;
+    for (int i = 0; i < 8; ++i) many.push_back("Doc " + std::to_string(i));
+    const ForceClosePrompt lots = force_close_prompt("Ed", "ed", 9, "Ed", true, 10, many);
+    CHECK(lots.secondary.find("All 10 of its windows") != std::string::npos);
+    CHECK(lots.secondary.find("and 2 more") != std::string::npos);
+    CHECK(lots.secondary.find("2 windows without a title") != std::string::npos);
+    CHECK(lots.secondary.find("Doc 6") == std::string::npos);
+    std::string longt;
+    for (int i = 0; i < 100; ++i) longt += "\u57ce";
+    const std::string cut = short_title(longt, 60);
+    CHECK(cut.size() == 59 * 3 + 3);  // 59 code points + ellipsis
+    CHECK(short_title("a\nb", 60) == "a b");
+  }
+
   // The GPU fallback names the server that owns DISPLAY, not every Xvfb.
   {
     CHECK(!local_x_display_number(""));

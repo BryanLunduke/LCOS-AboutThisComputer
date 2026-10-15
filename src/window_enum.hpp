@@ -31,6 +31,9 @@ struct AppEntry {
   // "pid N" or "window N" when the visible name is shared. Empty otherwise.
   // Shown beside the name so ellipsis cannot hide it.
   std::string distinguish;
+  // Round 12 (A-1, A-2): number of normal windows and their titles.
+  int window_count = 0;
+  std::vector<std::string> window_titles;
   // Root and descendants whose anonymous charge is included in rss_kb.
   std::vector<ProcPin> kill_pins;
   // The LCOS System remainder. Always the last list row. Not an application.
