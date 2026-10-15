@@ -2379,6 +2379,35 @@ int main() {
     CHECK(neutralize_title("evil\u202Etxt.exe") == "eviltxt.exe");
     CHECK(neutralize_title("a\u2066b\u2067c\u2068d\u2069e\u202Af\u202Bg\u202Ch\u202Di") == "abcdefghi");
     CHECK(neutralize_title("x\u200Ey\u200Fz\u061C!") == "xyz!");
+    // Round 14 (A-2): zero-width, invisible and format characters.
+    CHECK(neutralize_title("Pa\u200Bi\u200Cn\u200Dt") == "Paint");
+    CHECK(neutralize_title("a\u2060b\u2061c\u2062d\u2063e\u2064f") == "abcdef");
+    CHECK(neutralize_title("\uFEFFNotes\u00AD") == "Notes");
+    CHECK(neutralize_title("x\u034Fy\u180Ez\u3164w\uFFA0v") == "xyzwv");
+    CHECK(neutralize_title("tag\U000E0041\U000E007Fend") == "tagend");
+    CHECK(neutralize_title("caf\u00E9 \u57CE \U0001F600") == "caf\u00E9 \u57CE \U0001F600");
+    // Round 14 (A-1): who owns the window.
+    CHECK(classify_pid_ownership(100, 100, "", "box") == PidOwnership::Verified);
+    CHECK(classify_pid_ownership(100, 100, "box", "box") == PidOwnership::Verified);
+    CHECK(classify_pid_ownership(100, 200, "", "box") == PidOwnership::Mismatch);
+    CHECK(classify_pid_ownership(100, 100, "otherhost", "box") == PidOwnership::Mismatch);
+    CHECK(classify_pid_ownership(100, 0, "", "box") == PidOwnership::Unknown);
+    CHECK(classify_pid_ownership(100, 0, "box", "box") == PidOwnership::Unknown);
+    {
+      const std::string m = pid_mismatch_message("Xmessage", 4242, 777, "", "box");
+      CHECK(m.find("PID 4242") != std::string::npos && m.find("PID 777") != std::string::npos);
+      CHECK(m.find("Nothing was closed") != std::string::npos);
+      const std::string r = pid_mismatch_message("Xmessage", 4242, 0, "far", "box");
+      CHECK(r.find("another computer") != std::string::npos);
+      const ForceClosePrompt unk = force_close_prompt("Harmless Notes", "sleep", 4242, "Xmessage", true, 1,
+                                                      {"Harmless Notes x"}, PidOwnership::Unknown);
+      CHECK(unk.secondary.find("will close") == std::string::npos);
+      CHECK(unk.secondary.find("could not confirm") != std::string::npos);
+      CHECK(unk.secondary.find("may stay open") != std::string::npos);
+      const ForceClosePrompt many = force_close_prompt("Ed", "ed", 9, "Ed", true, 3, {"a", "b", "c"},
+                                                       PidOwnership::Unknown);
+      CHECK(many.secondary.find("will close") == std::string::npos);
+    }
     CHECK(neutralize_title("line1\nline2\tx\x7f\u0085y\u2028z") == "line1 line2 x  y z");
     CHECK(neutralize_title("\u0645\u0631\u062D\u0628\u0627 \u57ce\u5e02 \U0001F3D9 caf\u00e9") ==
           "\u0645\u0631\u062D\u0628\u0627 \u57ce\u5e02 \U0001F3D9 caf\u00e9");

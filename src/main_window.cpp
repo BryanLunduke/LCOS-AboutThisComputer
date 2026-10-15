@@ -1385,9 +1385,23 @@ void MainWindow::on_force_close(const AppEntry& entry_ref) {
   }
 
   const bool window_still_there = window_xid_matches_pid(entry.xid, entry.pid);
+  // Round 14 (A-1): _NET_WM_PID is set by the window's own program. Ask the
+  // display server who really owns the window before offering to kill.
+  PidOwnership ownership = PidOwnership::Unknown;
+  if (window_still_there) {
+    const WindowOwnerCheck owner = check_window_owner(entry.xid, entry.pid);
+    ownership = owner.ownership;
+    if (ownership == PidOwnership::Mismatch) {
+      show_notice(*this, "Force Close refused.",
+                  pid_mismatch_message(entry.name, entry.pid, owner.server_pid, owner.client_machine,
+                                       owner.local_host));
+      arm_force_close_refresh();
+      return;
+    }
+  }
   const ForceClosePrompt prompt = force_close_prompt(
       entry.name, entry.comm, entry.pid, entry.class_name, window_still_there, entry.window_count,
-      entry.window_titles);
+      entry.window_titles, ownership);
   Gtk::MessageDialog dlg(*this, prompt.primary, false, Gtk::MESSAGE_WARNING, Gtk::BUTTONS_NONE,
                          true);
   dlg.set_secondary_text(prompt.secondary);

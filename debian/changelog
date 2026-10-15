@@ -1,3 +1,14 @@
+lunduke-about (0.9.4-6) unstable; urgency=medium
+
+  * Fix round 14 review findings: before Force Close, the display server
+    is asked which process owns the window (X-Resource client PID, and
+    WM_CLIENT_MACHINE against this host). A mismatch is refused and nothing
+    is killed; when ownership cannot be confirmed the prompt says so and no
+    longer promises the window will close (A-1). Zero-width, invisible and
+    format characters are removed from window titles (A-2).
+
+ -- Phil <phil@brushpad.local>  Thu, 15 Oct 2026 04:03:25 +0000
+
 lunduke-about (0.9.4-5) unstable; urgency=medium
 
   * Fix round 13 review findings: bidi control characters are removed and
