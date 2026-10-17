@@ -1414,6 +1414,16 @@ OsRelease parse_os_release(std::istream& in) {
   return rel;
 }
 
+OsRelease read_os_release_paths(const std::vector<std::string>& paths) {
+  for (const auto& path : paths) {
+    std::ifstream in(path);
+    if (!in) continue;
+    OsRelease rel = parse_os_release(in);
+    if (rel.ok) return rel;
+  }
+  return {};
+}
+
 std::string os_display_name(const OsRelease& host, const OsRelease& fallback,
                             bool allow_fallback) {
   const auto format = [](const OsRelease& rel) {
@@ -1501,11 +1511,9 @@ ProcSnapshot read_proc_snapshot(pid_t pid) {
 
 SystemInfo gather_system_info(int x_connection_fd, const std::string& x_display_name) {
   SystemInfo info;
-  OsRelease host;
-  {
-    std::ifstream in("/etc/os-release");
-    if (in) host = parse_os_release(in);
-  }
+  // /etc/os-release first, then the vendor copy (os-release(5) fallback).
+  const OsRelease host =
+      read_os_release_paths({"/etc/os-release", "/usr/lib/os-release"});
   OsRelease fallback;
   bool allow_fallback = false;
   // A parsed /etc/os-release is the host. The recipe file is not compiled in.

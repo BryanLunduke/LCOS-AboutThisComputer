@@ -1,3 +1,16 @@
+lunduke-about (0.9.5-1) unstable; urgency=medium
+
+  * Version 0.9.5 for the LCOS 0.9.5 track.
+  * Round 15 A-1: fall back to /usr/lib/os-release when /etc/os-release is
+    missing, empty or unparsable, as os-release(5) describes.
+  * Round 15 A-2: the about-ui test polls for row frames, the Force Close
+    menu and the scrollbar with a 5 s deadline instead of fixed short
+    retries, so busy CI machines no longer see false failures.
+  * Round 15 A-3: ship AppStream metadata
+    (org.lunduke.AboutThisComputer.metainfo.xml), validated by a test.
+
+ -- Phil <phil@brushpad.local>  Sat, 17 Oct 2026 01:43:32 +0000
+
 lunduke-about (0.9.4-8) unstable; urgency=medium
 
   * Remove the duplicate Jesse Buschhaus added at the end of the
