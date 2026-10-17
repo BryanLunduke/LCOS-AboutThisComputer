@@ -713,7 +713,7 @@ void test_window_layout() {
   }
 
   // Jon Darrow is second and Steve Rockefeller third. The list ends
-  // pondo_hound, Bobby Hollingsworth, Otto R. Doll. The wrapped block still
+  // pondo_hound, Bobby Hollingsworth, Otto R. Doll, RussWill. The wrapped block still
   // fits in the header beside the logo (no crawl clip) inside the
   // 520×360 window.
   lundukeabout::SupportersNamesView* names = nullptr;
@@ -742,6 +742,7 @@ void test_window_layout() {
         "pondo_hound",
         "Bobby Hollingsworth",
         "Otto R. Doll",
+        "RussWill",
     };
     std::vector<std::string> shown_entries;
     std::string current;
@@ -755,21 +756,22 @@ void test_window_layout() {
       current.push_back(shown[i]);
     }
     shown_entries.push_back(current);
-    constexpr std::size_t kCount = 13;
+    constexpr std::size_t kCount = 14;
     CHECK(shown_entries.size() == kCount);
     CHECK(shown_entries.size() >= 3);
     CHECK(shown_entries[0] == "\"Fuzzy\"");
     CHECK(shown_entries[1] == "Jon Darrow");
     CHECK(shown_entries[2] == "Steve Rockefeller");
-    CHECK(shown_entries[shown_entries.size() - 3] == "pondo_hound");
-    CHECK(shown_entries[shown_entries.size() - 2] == "Bobby Hollingsworth");
-    CHECK(shown_entries.back() == "Otto R. Doll");
+    CHECK(shown_entries[shown_entries.size() - 4] == "pondo_hound");
+    CHECK(shown_entries[shown_entries.size() - 3] == "Bobby Hollingsworth");
+    CHECK(shown_entries[shown_entries.size() - 2] == "Otto R. Doll");
+    CHECK(shown_entries.back() == "RussWill");
     CHECK(shown_entries[7] == "Jesse Buschhaus");
     CHECK(shown_entries == expected);
     CHECK(shown ==
           "\"Fuzzy\", Jon Darrow, Steve Rockefeller, Steven P., Chris Hammond, "
           "Mike Beasley, Jack Beckman, Jesse Buschhaus, Bob Lorna, AtrusBatleth, "
-          "pondo_hound, Bobby Hollingsworth, Otto R. Doll");
+          "pondo_hound, Bobby Hollingsworth, Otto R. Doll, RussWill");
 
     const int content_h = names->wrapped_content_height();
     const int view_h = names->get_allocated_height();
