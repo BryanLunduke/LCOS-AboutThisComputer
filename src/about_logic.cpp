@@ -1598,6 +1598,7 @@ std::vector<std::string> builtin_supporter_entries() {
       "pondo_hound",
       "Bobby Hollingsworth",
       "Otto R. Doll",
+      "RussWill",
   };
 }
 

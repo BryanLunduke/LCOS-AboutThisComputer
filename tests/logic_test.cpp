@@ -2192,7 +2192,8 @@ int main() {
   // Supporters: Jon Darrow is inserted at index 1. Steve Rockefeller,
   // previously second, moves to index 2. 0.9.4-7 appends pondo_hound,
   // Bobby Hollingsworth, Otto R. Doll at the end; 0.9.4-8 drops the
-  // duplicate Jesse Buschhaus (he stays at index 7) (13 entries).
+  // duplicate Jesse Buschhaus (he stays at index 7); 0.9.5-2 appends
+  // RussWill after Otto R. Doll (14 entries).
   // The file and the built-in fallback stay the same list.
   {
     const std::vector<std::string> expected = {
@@ -2209,8 +2210,9 @@ int main() {
         "pondo_hound",
         "Bobby Hollingsworth",
         "Otto R. Doll",
+        "RussWill",
     };
-    constexpr std::size_t kCount = 13;
+    constexpr std::size_t kCount = 14;
     std::string path;
     if (const char* env = std::getenv("LUNDUKE_SUPPORTERS_TXT")) path = env;
     if (path.empty()) {
@@ -2228,16 +2230,17 @@ int main() {
     CHECK(entries[0] == "\"Fuzzy\"");
     CHECK(entries[1] == "Jon Darrow");
     CHECK(entries[2] == "Steve Rockefeller");
-    CHECK(entries[entries.size() - 3] == "pondo_hound");
-    CHECK(entries[entries.size() - 2] == "Bobby Hollingsworth");
-    CHECK(entries.back() == "Otto R. Doll");
+    CHECK(entries[entries.size() - 4] == "pondo_hound");
+    CHECK(entries[entries.size() - 3] == "Bobby Hollingsworth");
+    CHECK(entries[entries.size() - 2] == "Otto R. Doll");
+    CHECK(entries.back() == "RussWill");
     CHECK(entries[7] == "Jesse Buschhaus");
     CHECK(entries == expected);
     CHECK(builtin_supporter_entries() == expected);
     CHECK(join_supporter_entries(builtin_supporter_entries()) ==
           "\"Fuzzy\", Jon Darrow, Steve Rockefeller, Steven P., Chris Hammond, "
           "Mike Beasley, Jack Beckman, Jesse Buschhaus, Bob Lorna, AtrusBatleth, "
-          "pondo_hound, Bobby Hollingsworth, Otto R. Doll");
+          "pondo_hound, Bobby Hollingsworth, Otto R. Doll, RussWill");
   }
 
   // Round 7: desktop Name, prettified class, row-tree rollup, refresh pace.
