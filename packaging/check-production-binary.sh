@@ -4,12 +4,18 @@
 # hooks out at compile time.
 set -eu
 
-if [ "$#" -ne 1 ]; then
-  echo "usage: check-production-binary.sh binary" >&2
+if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
+  echo "usage: check-production-binary.sh binary [buildtype]" >&2
   exit 2
 fi
 
 BIN=$1
+# Only release-type builds strip the checkout path (meson test: 77 = SKIP),
+# so a debug build of a clean checkout is not a red suite.
+case "${2:-release}" in
+  release|plain) ;;
+  *) echo "SKIP: buildtype '$2' is not a release build"; exit 77 ;;
+esac
 if [ ! -f "$BIN" ]; then
   echo "missing $BIN" >&2
   exit 1

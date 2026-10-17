@@ -2445,6 +2445,39 @@ int main() {
     }
   }
 
+  // Round 15 A-1: /usr/lib/os-release is used when /etc/os-release is
+  // missing, empty or unparsable; a parsed /etc copy still wins.
+  {
+    char tmpl[] = "/tmp/about-osrel-XXXXXX";
+    const char* dir = mkdtemp(tmpl);
+    CHECK(dir != nullptr);
+    if (dir) {
+      const std::string d = dir;
+      const std::string etc = d + "/etc-os-release";
+      const std::string usr = d + "/usr-lib-os-release";
+      { std::ofstream o(usr); o << "PRETTY_NAME=\"LCOS 0.9.5\"\nNAME=LCOS\nID=lcos\n"; }
+      // Missing /etc copy.
+      OsRelease r = read_os_release_paths({etc, usr});
+      CHECK(r.ok);
+      CHECK(os_display_name(r, OsRelease{}, false) == "LCOS 0.9.5");
+      // Empty / garbage /etc copy.
+      { std::ofstream o(etc); o << "\n# nothing here\nGARBAGE\n"; }
+      r = read_os_release_paths({etc, usr});
+      CHECK(r.ok && r.pretty == "LCOS 0.9.5");
+      // A parsed /etc copy wins.
+      { std::ofstream o(etc); o << "PRETTY_NAME=\"LCOS Etc\"\nID=lcos\n"; }
+      r = read_os_release_paths({etc, usr});
+      CHECK(r.ok && r.pretty == "LCOS Etc");
+      // Neither present.
+      ::unlink(etc.c_str());
+      ::unlink(usr.c_str());
+      r = read_os_release_paths({etc, usr});
+      CHECK(!r.ok);
+      CHECK(os_display_name(r, OsRelease{}, false) == "Unknown OS");
+      ::rmdir(d.c_str());
+    }
+  }
+
   if (g_failures != 0) {
     std::cerr << g_failures << " failure(s)\n";
     return 1;

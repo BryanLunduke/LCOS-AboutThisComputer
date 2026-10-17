@@ -1,7 +1,7 @@
 project(
   'lunduke-about',
   'cpp',
-  version: '0.9.4',
+  version: '0.9.5',
   license: 'GPL-3.0-or-later',
   meson_version: '>=0.56.0',
   default_options: [
@@ -109,7 +109,7 @@ check_production_binary = find_program('packaging/check-production-binary.sh')
 test(
   'about-production-binary',
   check_production_binary,
-  args: [about_exe.full_path()],
+  args: [about_exe, get_option('buildtype')],
   timeout: 60,
 )
 
@@ -141,3 +141,18 @@ install_data(
   'data/org.lunduke.AboutThisComputer.desktop',
   install_dir: join_paths(get_option('datadir'), 'applications'),
 )
+
+# Round 15 A-3: AppStream metadata for software centres.
+install_data(
+  'data/org.lunduke.AboutThisComputer.metainfo.xml',
+  install_dir: join_paths(get_option('datadir'), 'metainfo'),
+)
+appstreamcli = find_program('appstreamcli', required: false)
+if appstreamcli.found()
+  test(
+    'about-metainfo',
+    appstreamcli,
+    args: ['validate', '--no-net', files('data/org.lunduke.AboutThisComputer.metainfo.xml')],
+    timeout: 60,
+  )
+endif

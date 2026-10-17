@@ -5,6 +5,7 @@
 
 #include <iosfwd>
 #include <string>
+#include <vector>
 #include <sys/types.h>
 
 namespace lundukeabout {
@@ -37,6 +38,10 @@ struct OsRelease {
 };
 
 OsRelease parse_os_release(std::istream& in);
+// os-release(5): read the first path that opens and parses. LCOS passes
+// /etc/os-release then /usr/lib/os-release, so a missing or broken /etc copy
+// still names the OS.
+OsRelease read_os_release_paths(const std::vector<std::string>& paths);
 // Host text wins whenever it parsed. fallback is used only when host did not
 // parse and allow_fallback is set (dev override). Pretty-name substrings are
 // not consulted; ID is recorded on OsRelease for callers that care.

@@ -41,6 +41,22 @@ void drain() {
   while (gtk_events_pending()) gtk_main_iteration();
 }
 
+// Round 15 A-2: poll with a wall-clock deadline instead of a fixed number of
+// short tries, so a busy CI box (parallel suites, ASan) does not see false
+// failures. Returns as soon as ready() is true; the deadline only matters
+// when it never becomes true.
+constexpr int kUiDeadlineMs = 5000;
+template <typename Pred>
+bool wait_for(Pred ready, int deadline_ms = kUiDeadlineMs) {
+  const gint64 end = g_get_monotonic_time() + static_cast<gint64>(deadline_ms) * 1000;
+  for (;;) {
+    drain();
+    if (ready()) return true;
+    if (g_get_monotonic_time() >= end) return false;
+    g_usleep(10000);
+  }
+}
+
 void walk(Gtk::Widget& widget, const std::function<void(Gtk::Widget&)>& fn);
 
 GdkDevice* seat_device(bool keyboard) {
@@ -551,12 +567,18 @@ void test_row_focus_visible() {
   drain();
 
   row_a->grab_focus();
-  settle_draw(*row_a);
-  settle_draw(*row_b);
+  FocusSample focused;
+  FocusSample idle;
+  wait_for([&] {
+    settle_draw(*row_a);
+    settle_draw(*row_b);
+    focused = sample_row_background(*row_a);
+    idle = sample_row_background(*row_b);
+    return focused.ok && idle.ok && focused.total > 0 && focused.focus * 2 >= focused.total &&
+           focused.dark > 0 && idle.white * 2 >= idle.total;
+  });
   CHECK(row_a->is_focus());
   CHECK(!row_b->is_focus());
-  const FocusSample focused = sample_row_background(*row_a);
-  const FocusSample idle = sample_row_background(*row_b);
   if (!focused.ok || focused.focus * 2 < focused.total) {
     std::cerr << "focused row pixels r=" << focused.r << " g=" << focused.g
               << " b=" << focused.b << " focus=" << focused.focus
@@ -574,10 +596,16 @@ void test_row_focus_visible() {
   drain();
   CHECK(row_b->is_focus());
   CHECK(!row_a->is_focus());
-  settle_draw(*row_a);
-  settle_draw(*row_b);
-  const FocusSample now_b = sample_row_background(*row_b);
-  const FocusSample now_a = sample_row_background(*row_a);
+  FocusSample now_b;
+  FocusSample now_a;
+  wait_for([&] {
+    settle_draw(*row_a);
+    settle_draw(*row_b);
+    now_b = sample_row_background(*row_b);
+    now_a = sample_row_background(*row_a);
+    return now_b.ok && now_a.ok && now_b.focus * 2 >= now_b.total &&
+           now_a.white * 2 >= now_a.total;
+  });
   if (!now_b.ok || now_b.focus * 2 < now_b.total) {
     std::cerr << "tabbed row pixels r=" << now_b.r << " g=" << now_b.g << " b=" << now_b.b
               << " focus=" << now_b.focus << " white=" << now_b.white
@@ -639,17 +667,15 @@ void test_window_layout() {
   CHECK(saw_os);
 
   Gtk::Label* system = nullptr;
-  for (int i = 0; i < 50 && !(system && system->get_allocated_height() > 1); ++i) {
+  wait_for([&] {
     system = nullptr;
     walk(window, [&](Gtk::Widget& widget) {
       auto* label = dynamic_cast<Gtk::Label*>(&widget);
       if (!label) return;
       if (label->get_text() == "LCOS System") system = label;
     });
-    if (system && system->get_allocated_height() > 1) break;
-    g_usleep(50000);
-    drain();
-  }
+    return system && system->get_allocated_height() > 1;
+  });
   CHECK(system != nullptr);
   if (system) {
     CHECK(inside_scrolled(*system));
@@ -691,18 +717,14 @@ void test_window_layout() {
   // fits in the header beside the logo (no crawl clip) inside the
   // 520×360 window.
   lundukeabout::SupportersNamesView* names = nullptr;
-  for (int i = 0; i < 50; ++i) {
+  wait_for([&] {
     names = nullptr;
     walk(window, [&](Gtk::Widget& widget) {
       if (auto* view = dynamic_cast<lundukeabout::SupportersNamesView*>(&widget)) names = view;
     });
-    if (names && names->get_allocated_width() >= 40 && names->get_allocated_height() > 1 &&
-        names->wrapped_content_height() > 0) {
-      break;
-    }
-    g_usleep(20000);
-    drain();
-  }
+    return names && names->get_allocated_width() >= 40 && names->get_allocated_height() > 1 &&
+           names->wrapped_content_height() > 0;
+  });
   CHECK(names != nullptr);
   if (names) {
     const std::string shown(names->text());
@@ -1138,10 +1160,7 @@ void test_scrollbar_thumb() {
     return;
   }
   CHECK(bar->get_style_context()->has_class("platinum-scroll"));
-  for (int i = 0; i < 10 && bar->get_allocated_width() < 14; ++i) {
-    drain();
-    g_usleep(20000);
-  }
+  wait_for([&] { return bar->get_allocated_width() >= 14; });
   const int width = bar->get_allocated_width();
   const int height = bar->get_allocated_height();
   if (width < 14) std::cerr << "scrollbar width " << width << "\n";
@@ -1213,6 +1232,25 @@ bool menu_screen_box(ScreenBox& box) {
   return gdk_box(gtk_widget_get_window(grabbed), box);
 }
 
+// Round 15 A-2: after a popdown, let the X server answer the ungrab and the
+// focus changes before the next popup. Under load those replies arrive late
+// and used to cancel the next menu (it popped up, then was deactivated).
+void settle_x() {
+  GdkDisplay* display = gdk_display_get_default();
+  if (display) gdk_display_sync(display);
+  drain();
+  // Quiet for 100 ms in a row, or give up after the usual deadline.
+  gint64 quiet_since = g_get_monotonic_time();
+  wait_for([&] {
+    if (display) gdk_display_sync(display);
+    if (gtk_events_pending()) {
+      quiet_since = g_get_monotonic_time();
+      return false;
+    }
+    return g_get_monotonic_time() - quiet_since >= 100000;
+  });
+}
+
 void assert_menu_on_row(lundukeabout::AppRow& row, const char* how) {
   drain();
   ScreenBox row_box;
@@ -1221,12 +1259,7 @@ void assert_menu_on_row(lundukeabout::AppRow& row, const char* how) {
   CHECK(static_cast<bool>(window));
   if (!window) return;
   CHECK(gdk_box(window->gobj(), row_box));
-  bool got = false;
-  for (int i = 0; i < 15 && !got; ++i) {
-    drain();
-    got = menu_screen_box(menu);
-    if (!got) g_usleep(20000);
-  }
+  const bool got = wait_for([&] { return menu_screen_box(menu); });
   if (!got) std::cerr << how << ": Force Close menu has no window\n";
   CHECK(got);
   if (!got) return;
@@ -1241,7 +1274,7 @@ void assert_menu_on_row(lundukeabout::AppRow& row, const char* how) {
   CHECK(below || above);
   CHECK(std::abs(menu.x - row_box.x) <= 64);
   row.dismiss_menu();
-  drain();
+  settle_x();
 }
 
 void test_menu_tracks_scrolled_row() {

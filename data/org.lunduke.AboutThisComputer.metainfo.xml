@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.lunduke.AboutThisComputer</id>
+  <metadata_license>FSFAP</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>About This Computer</name>
+  <summary>System information and running applications for LCOS</summary>
+  <description>
+    <p>
+      About This Computer is a classic Mac OS 9 style window for the Lunduke
+      Computer Operating System. It shows the LCOS version, memory, CPU and
+      graphics, the Supporters of LCOS, and the running graphical
+      applications with their memory use.
+    </p>
+    <p>
+      Each running application can be closed from its row with Force Close,
+      after a warning that lists its open windows.
+    </p>
+  </description>
+  <url type="homepage">https://lunduke.com</url>
+  <launchable type="desktop-id">org.lunduke.AboutThisComputer.desktop</launchable>
+  <provides>
+    <binary>lunduke-about</binary>
+  </provides>
+  <developer id="com.lunduke">
+    <name>The Lunduke Journal</name>
+  </developer>
+  <content_rating type="oars-1.1"/>
+  <categories>
+    <category>System</category>
+    <category>Monitor</category>
+  </categories>
+  <releases>
+    <release version="0.9.5" date="2026-10-16">
+      <description>
+        <p>Reads /usr/lib/os-release when /etc/os-release is missing or unreadable, adds this AppStream metadata, and makes the UI tests reliable on busy machines.</p>
+      </description>
+    </release>
+    <release version="0.9.4" date="2026-10-13">
+      <description>
+        <p>Dark theme support, safer Force Close with window titles, and an updated Supporters list.</p>
+      </description>
+    </release>
+  </releases>
+</component>
