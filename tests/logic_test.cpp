@@ -2193,7 +2193,8 @@ int main() {
   // previously second, moves to index 2. 0.9.4-7 appends pondo_hound,
   // Bobby Hollingsworth, Otto R. Doll at the end; 0.9.4-8 drops the
   // duplicate Jesse Buschhaus (he stays at index 7); 0.9.5-2 appends
-  // RussWill after Otto R. Doll (14 entries).
+  // RussWill after Otto R. Doll; 0.9.5-3 appends xhighj, R3,
+  // naterthegreater after RussWill (17 entries).
   // The file and the built-in fallback stay the same list.
   {
     const std::vector<std::string> expected = {
@@ -2211,8 +2212,11 @@ int main() {
         "Bobby Hollingsworth",
         "Otto R. Doll",
         "RussWill",
+        "xhighj",
+        "R3",
+        "naterthegreater",
     };
-    constexpr std::size_t kCount = 14;
+    constexpr std::size_t kCount = 17;
     std::string path;
     if (const char* env = std::getenv("LUNDUKE_SUPPORTERS_TXT")) path = env;
     if (path.empty()) {
@@ -2230,17 +2234,21 @@ int main() {
     CHECK(entries[0] == "\"Fuzzy\"");
     CHECK(entries[1] == "Jon Darrow");
     CHECK(entries[2] == "Steve Rockefeller");
-    CHECK(entries[entries.size() - 4] == "pondo_hound");
-    CHECK(entries[entries.size() - 3] == "Bobby Hollingsworth");
-    CHECK(entries[entries.size() - 2] == "Otto R. Doll");
-    CHECK(entries.back() == "RussWill");
+    CHECK(entries[entries.size() - 7] == "pondo_hound");
+    CHECK(entries[entries.size() - 6] == "Bobby Hollingsworth");
+    CHECK(entries[entries.size() - 5] == "Otto R. Doll");
+    CHECK(entries[entries.size() - 4] == "RussWill");
+    CHECK(entries[entries.size() - 3] == "xhighj");
+    CHECK(entries[entries.size() - 2] == "R3");
+    CHECK(entries.back() == "naterthegreater");
     CHECK(entries[7] == "Jesse Buschhaus");
     CHECK(entries == expected);
     CHECK(builtin_supporter_entries() == expected);
     CHECK(join_supporter_entries(builtin_supporter_entries()) ==
           "\"Fuzzy\", Jon Darrow, Steve Rockefeller, Steven P., Chris Hammond, "
           "Mike Beasley, Jack Beckman, Jesse Buschhaus, Bob Lorna, AtrusBatleth, "
-          "pondo_hound, Bobby Hollingsworth, Otto R. Doll, RussWill");
+          "pondo_hound, Bobby Hollingsworth, Otto R. Doll, RussWill, xhighj, R3, "
+          "naterthegreater");
   }
 
   // Round 7: desktop Name, prettified class, row-tree rollup, refresh pace.
