@@ -1,3 +1,11 @@
+lunduke-about (0.9.5-3) unstable; urgency=medium
+
+  * Add xhighj, R3 and naterthegreater, in that order, to the end of the
+    Supporters list after RussWill (data/supporters.txt and the built-in
+    fallback; 17 names).
+
+ -- Phil <phil@brushpad.local>  Sun, 18 Oct 2026 20:00:45 +0000
+
 lunduke-about (0.9.5-2) unstable; urgency=medium
 
   * Add RussWill to the end of the Supporters list, after Otto R. Doll
