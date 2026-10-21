@@ -714,7 +714,7 @@ void test_window_layout() {
 
   // Jon Darrow is second and Steve Rockefeller third. The list ends
   // pondo_hound, Bobby Hollingsworth, Otto R. Doll, RussWill, xhighj, R3,
-  // naterthegreater. The wrapped block still
+  // naterthegreater, Neil Stevens, Fischer, cowprint. The wrapped block still
   // fits in the header beside the logo (no crawl clip) inside the
   // 520×360 window.
   lundukeabout::SupportersNamesView* names = nullptr;
@@ -747,6 +747,9 @@ void test_window_layout() {
         "xhighj",
         "R3",
         "naterthegreater",
+        "Neil Stevens",
+        "Fischer",
+        "cowprint",
     };
     std::vector<std::string> shown_entries;
     std::string current;
@@ -760,26 +763,29 @@ void test_window_layout() {
       current.push_back(shown[i]);
     }
     shown_entries.push_back(current);
-    constexpr std::size_t kCount = 17;
+    constexpr std::size_t kCount = 20;
     CHECK(shown_entries.size() == kCount);
     CHECK(shown_entries.size() >= 3);
     CHECK(shown_entries[0] == "\"Fuzzy\"");
     CHECK(shown_entries[1] == "Jon Darrow");
     CHECK(shown_entries[2] == "Steve Rockefeller");
-    CHECK(shown_entries[shown_entries.size() - 7] == "pondo_hound");
-    CHECK(shown_entries[shown_entries.size() - 6] == "Bobby Hollingsworth");
-    CHECK(shown_entries[shown_entries.size() - 5] == "Otto R. Doll");
-    CHECK(shown_entries[shown_entries.size() - 4] == "RussWill");
-    CHECK(shown_entries[shown_entries.size() - 3] == "xhighj");
-    CHECK(shown_entries[shown_entries.size() - 2] == "R3");
-    CHECK(shown_entries.back() == "naterthegreater");
+    CHECK(shown_entries[shown_entries.size() - 10] == "pondo_hound");
+    CHECK(shown_entries[shown_entries.size() - 9] == "Bobby Hollingsworth");
+    CHECK(shown_entries[shown_entries.size() - 8] == "Otto R. Doll");
+    CHECK(shown_entries[shown_entries.size() - 7] == "RussWill");
+    CHECK(shown_entries[shown_entries.size() - 6] == "xhighj");
+    CHECK(shown_entries[shown_entries.size() - 5] == "R3");
+    CHECK(shown_entries[shown_entries.size() - 4] == "naterthegreater");
+    CHECK(shown_entries[shown_entries.size() - 3] == "Neil Stevens");
+    CHECK(shown_entries[shown_entries.size() - 2] == "Fischer");
+    CHECK(shown_entries.back() == "cowprint");
     CHECK(shown_entries[7] == "Jesse Buschhaus");
     CHECK(shown_entries == expected);
     CHECK(shown ==
           "\"Fuzzy\", Jon Darrow, Steve Rockefeller, Steven P., Chris Hammond, "
           "Mike Beasley, Jack Beckman, Jesse Buschhaus, Bob Lorna, AtrusBatleth, "
           "pondo_hound, Bobby Hollingsworth, Otto R. Doll, RussWill, xhighj, R3, "
-          "naterthegreater");
+          "naterthegreater, Neil Stevens, Fischer, cowprint");
 
     const int content_h = names->wrapped_content_height();
     const int view_h = names->get_allocated_height();
