@@ -31,6 +31,11 @@
     <category>Monitor</category>
   </categories>
   <releases>
+    <release version="0.9.6" date="2026-10-20">
+      <description>
+        <p>Adds Neil Stevens, Fischer and cowprint to the end of the Supporters list.</p>
+      </description>
+    </release>
     <release version="0.9.5" date="2026-10-16">
       <description>
         <p>Reads /usr/lib/os-release when /etc/os-release is missing or unreadable, adds this AppStream metadata, and makes the UI tests reliable on busy machines.</p>

@@ -1602,6 +1602,9 @@ std::vector<std::string> builtin_supporter_entries() {
       "xhighj",
       "R3",
       "naterthegreater",
+      "Neil Stevens",
+      "Fischer",
+      "cowprint",
   };
 }
 

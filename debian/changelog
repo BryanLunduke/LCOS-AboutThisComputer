@@ -1,3 +1,12 @@
+lunduke-about (0.9.6-1) unstable; urgency=medium
+
+  * Version 0.9.6 for the LCOS 0.9.6 track.
+  * Add Neil Stevens, Fischer and cowprint, in that order, to the end of the
+    Supporters list after naterthegreater (data/supporters.txt and the
+    built-in fallback; 20 names).
+
+ -- Phil <phil@brushpad.local>  Wed, 21 Oct 2026 01:47:40 +0000
+
 lunduke-about (0.9.5-3) unstable; urgency=medium
 
   * Add xhighj, R3 and naterthegreater, in that order, to the end of the
