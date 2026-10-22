@@ -2195,7 +2195,8 @@ int main() {
   // duplicate Jesse Buschhaus (he stays at index 7); 0.9.5-2 appends
   // RussWill after Otto R. Doll; 0.9.5-3 appends xhighj, R3,
   // naterthegreater after RussWill; 0.9.6-1 appends Neil Stevens,
-  // Fischer, cowprint after naterthegreater (20 entries).
+  // Fischer, cowprint after naterthegreater; 0.9.6-2 appends
+  // KekPriestess of Kekistan, john-okeefe after cowprint (22 entries).
   // The file and the built-in fallback stay the same list.
   {
     const std::vector<std::string> expected = {
@@ -2219,8 +2220,10 @@ int main() {
         "Neil Stevens",
         "Fischer",
         "cowprint",
+        "KekPriestess of Kekistan",
+        "john-okeefe",
     };
-    constexpr std::size_t kCount = 20;
+    constexpr std::size_t kCount = 22;
     std::string path;
     if (const char* env = std::getenv("LUNDUKE_SUPPORTERS_TXT")) path = env;
     if (path.empty()) {
@@ -2238,16 +2241,18 @@ int main() {
     CHECK(entries[0] == "\"Fuzzy\"");
     CHECK(entries[1] == "Jon Darrow");
     CHECK(entries[2] == "Steve Rockefeller");
-    CHECK(entries[entries.size() - 10] == "pondo_hound");
-    CHECK(entries[entries.size() - 9] == "Bobby Hollingsworth");
-    CHECK(entries[entries.size() - 8] == "Otto R. Doll");
-    CHECK(entries[entries.size() - 7] == "RussWill");
-    CHECK(entries[entries.size() - 6] == "xhighj");
-    CHECK(entries[entries.size() - 5] == "R3");
-    CHECK(entries[entries.size() - 4] == "naterthegreater");
-    CHECK(entries[entries.size() - 3] == "Neil Stevens");
-    CHECK(entries[entries.size() - 2] == "Fischer");
-    CHECK(entries.back() == "cowprint");
+    CHECK(entries[entries.size() - 12] == "pondo_hound");
+    CHECK(entries[entries.size() - 11] == "Bobby Hollingsworth");
+    CHECK(entries[entries.size() - 10] == "Otto R. Doll");
+    CHECK(entries[entries.size() - 9] == "RussWill");
+    CHECK(entries[entries.size() - 8] == "xhighj");
+    CHECK(entries[entries.size() - 7] == "R3");
+    CHECK(entries[entries.size() - 6] == "naterthegreater");
+    CHECK(entries[entries.size() - 5] == "Neil Stevens");
+    CHECK(entries[entries.size() - 4] == "Fischer");
+    CHECK(entries[entries.size() - 3] == "cowprint");
+    CHECK(entries[entries.size() - 2] == "KekPriestess of Kekistan");
+    CHECK(entries.back() == "john-okeefe");
     CHECK(entries[7] == "Jesse Buschhaus");
     CHECK(entries == expected);
     CHECK(builtin_supporter_entries() == expected);
@@ -2255,7 +2260,8 @@ int main() {
           "\"Fuzzy\", Jon Darrow, Steve Rockefeller, Steven P., Chris Hammond, "
           "Mike Beasley, Jack Beckman, Jesse Buschhaus, Bob Lorna, AtrusBatleth, "
           "pondo_hound, Bobby Hollingsworth, Otto R. Doll, RussWill, xhighj, R3, "
-          "naterthegreater, Neil Stevens, Fischer, cowprint");
+          "naterthegreater, Neil Stevens, Fischer, cowprint, "
+          "KekPriestess of Kekistan, john-okeefe");
   }
 
   // Round 7: desktop Name, prettified class, row-tree rollup, refresh pace.
