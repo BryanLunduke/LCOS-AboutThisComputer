@@ -1607,6 +1607,7 @@ std::vector<std::string> builtin_supporter_entries() {
       "cowprint",
       "KekPriestess of Kekistan",
       "john-okeefe",
+      "Brian Woodruff",
   };
 }
 
