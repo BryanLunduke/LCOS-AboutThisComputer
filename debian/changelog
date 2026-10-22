@@ -1,3 +1,11 @@
+lunduke-about (0.9.6-2) unstable; urgency=medium
+
+  * Add KekPriestess of Kekistan and john-okeefe, in that order, to the end
+    of the Supporters list after cowprint (data/supporters.txt and the
+    built-in fallback; 22 names).
+
+ -- Phil <phil@brushpad.local>  Thu, 22 Oct 2026 14:48:22 +0000
+
 lunduke-about (0.9.6-1) unstable; urgency=medium
 
   * Version 0.9.6 for the LCOS 0.9.6 track.
