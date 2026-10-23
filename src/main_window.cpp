@@ -12,6 +12,7 @@
 #include <map>
 #include <set>
 #include <climits>
+#include <cmath>
 #include <unistd.h>
 #include <signal.h>
 #include <sys/types.h>
@@ -150,9 +151,11 @@ scrollbar.platinum-scroll button {
 )CSS";
 
 // Movie-credits crawl. Slow enough to read; integer pixels so the names stay
-// as sharp as the title. The gap is only used while looping an overflow list.
-constexpr double kCreditsPixelsPerSecond = 16.0;
-constexpr int kCreditsLoopGapPx = 22;
+// as sharp as the title. The names area keeps the six-line height it had in
+// 0.9.6-3; a longer list rolls up through that area, and once its last line
+// has left the top it comes back in from the bottom edge.
+constexpr double kCreditsPixelsPerSecond = 24.0;
+constexpr int kCreditsVisibleLines = 6;
 // 1px covers allocation rounding. Anything taller is real clipping.
 constexpr int kFitSlackPx = 1;
 
@@ -260,9 +263,23 @@ SupportersNamesView::SupportersNamesView() {
   get_style_context()->add_class("supporters-names");
   get_style_context()->add_class("about-info");
   add_events(Gdk::ENTER_NOTIFY_MASK | Gdk::LEAVE_NOTIFY_MASK);
+  if (auto accessible = get_accessible()) {
+    accessible->set_role(Atk::ROLE_LABEL);
+    accessible->set_description("Supporters of LCOS");
+  }
+  // gtk-enable-animations=false keeps the names still, top-aligned.
+  if (auto settings = Gtk::Settings::get_default()) {
+    animations_conn_ = settings->property_gtk_enable_animations().signal_changed().connect(
+        [this]() {
+          scroll_offset_ = 0.0;
+          queue_draw();
+          sync_scroll_policy();
+        });
+  }
 }
 
 SupportersNamesView::~SupportersNamesView() {
+  animations_conn_.disconnect();
   stop_tick();
 }
 
@@ -270,8 +287,36 @@ void SupportersNamesView::set_text(const Glib::ustring& text) {
   if (text_ == text) return;
   text_ = text;
   scroll_offset_ = 0.0;
+  // The drawing area shows the names; the accessible tree gets the whole
+  // list at once, whatever part is scrolled into view.
+  if (auto accessible = get_accessible()) accessible->set_name(text_);
   invalidate_layout();
   queue_resize();
+}
+
+void SupportersNamesView::set_window_hidden(bool hidden) {
+  if (window_hidden_ == hidden) return;
+  window_hidden_ = hidden;
+  last_frame_us_ = 0;
+  sync_scroll_policy();
+}
+
+void SupportersNamesView::on_map() {
+  Gtk::DrawingArea::on_map();
+  sync_scroll_policy();
+}
+
+void SupportersNamesView::on_unmap() {
+  // No frame callback while the window is hidden, so a closed or hidden
+  // About window costs no CPU.
+  last_frame_us_ = 0;
+  stop_tick();
+  Gtk::DrawingArea::on_unmap();
+}
+
+bool SupportersNamesView::animations_enabled() const {
+  auto settings = Gtk::Settings::get_default();
+  return !settings || settings->property_gtk_enable_animations().get_value();
 }
 
 void SupportersNamesView::set_max_height(int height) {
@@ -315,7 +360,8 @@ void SupportersNamesView::get_preferred_height_for_width_vfunc(
   }
 
   ensure_layout(width);
-  int shown = layout_pixel_height_;
+  // Never taller than the six lines the header held in 0.9.6-3.
+  int shown = credits_view_height_;
   if (shown < 1) shown = 1;
   if (max_height_ > 0 && shown > max_height_) shown = max_height_;
   minimum_height = shown;
@@ -339,6 +385,7 @@ void SupportersNamesView::invalidate_layout() {
   layout_width_ = -1;
   layout_pixel_height_ = 0;
   single_line_height_ = 0;
+  credits_view_height_ = 0;
 }
 
 void SupportersNamesView::ensure_layout(int width) const {
@@ -367,6 +414,25 @@ void SupportersNamesView::ensure_layout(int width) const {
   layout_width_ = width;
   layout_pixel_height_ = pixel_height;
   single_line_height_ = single_height > 0 ? single_height : 1;
+  credits_view_height_ = layout_pixel_height_;
+  if (layout->get_line_count() > kCreditsVisibleLines) {
+    credits_view_height_ = lines_height(kCreditsVisibleLines);
+  }
+}
+
+int SupportersNamesView::lines_height(int lines) const {
+  if (!layout_ || lines < 1) return 0;
+  auto iter = layout_->get_iter();
+  int bottom = 0;
+  int index = 0;
+  do {
+    int y0 = 0;
+    int y1 = 0;
+    iter.get_line_yrange(y0, y1);
+    bottom = y1;
+    ++index;
+  } while (index < lines && iter.next_line());
+  return PANGO_PIXELS_CEIL(bottom);
 }
 
 bool SupportersNamesView::names_overflow(int view_height) const {
@@ -405,8 +471,19 @@ void SupportersNamesView::sync_scroll_policy() {
     stop_tick();
     return;
   }
-  // A pointer resting on the names pauses the crawl until it leaves.
-  if (pointer_over_) {
+  // Animations off: show the top of the list, still.
+  if (!animations_enabled()) {
+    if (scroll_offset_ != 0.0) {
+      scroll_offset_ = 0.0;
+      queue_draw();
+    }
+    last_frame_us_ = 0;
+    stop_tick();
+    return;
+  }
+  // A pointer resting on the names pauses the crawl until it leaves. A
+  // hidden or iconified window keeps its place and resumes on show.
+  if (pointer_over_ || window_hidden_ || !get_mapped()) {
     last_frame_us_ = 0;
     stop_tick();
     return;
@@ -445,8 +522,10 @@ bool SupportersNamesView::on_tick(const Glib::RefPtr<Gdk::FrameClock>& clock) {
   const int view_h = get_allocated_height();
   // StopAndClearId returns false and clears tick_id_ without
   // remove_tick_callback. GTK drops the callback when the handler returns false.
-  if (credits_on_tick(names_overflow(view_h), pointer_over_) == CreditsTickResult::StopAndClearId) {
-    if (!pointer_over_) {
+  const bool still = window_hidden_ || !animations_enabled();
+  if (credits_on_tick(names_overflow(view_h), pointer_over_ || still) ==
+      CreditsTickResult::StopAndClearId) {
+    if (!pointer_over_ && !window_hidden_) {
       scroll_offset_ = 0.0;
       queue_draw();
     }
@@ -462,15 +541,11 @@ bool SupportersNamesView::on_tick(const Glib::RefPtr<Gdk::FrameClock>& clock) {
   if (dt < 0.0) dt = 0.0;
   if (dt > 0.05) dt = 0.05;
 
-  const int origin_before = static_cast<int>(scroll_offset_);
-  scroll_offset_ += kCreditsPixelsPerSecond * dt;
-  const double cycle =
-      static_cast<double>(layout_pixel_height_ + kCreditsLoopGapPx);
-  if (cycle > 1.0) {
-    while (scroll_offset_ >= cycle) scroll_offset_ -= cycle;
-  }
-  const int origin_after = static_cast<int>(scroll_offset_);
-  // 16 px/s only moves the integer origin on some frames. Skip the rest.
+  const int origin_before = static_cast<int>(std::floor(scroll_offset_));
+  scroll_offset_ = credits_advance(scroll_offset_, kCreditsPixelsPerSecond * dt,
+                                   layout_pixel_height_, view_h);
+  const int origin_after = static_cast<int>(std::floor(scroll_offset_));
+  // 24 px/s only moves the integer origin on some frames. Skip the rest.
   if (origin_after != origin_before) queue_draw();
   return true;
 }
@@ -494,20 +569,12 @@ bool SupportersNamesView::on_draw(const Cairo::RefPtr<Cairo::Context>& cr) {
                       color.get_alpha());
 
   const bool overflow = names_overflow(height);
-  const int origin = overflow ? -static_cast<int>(scroll_offset_) : 0;
+  // Offset 0 is the list's top at the view's top (first show); a negative
+  // offset is the list coming back in from the bottom edge.
+  const int origin = overflow ? -static_cast<int>(std::floor(scroll_offset_)) : 0;
 
-  auto paint_at = [&](int y) {
-    cr->save();
-    cr->translate(0, y);
-    layout_->show_in_cairo_context(cr);
-    cr->restore();
-  };
-
-  paint_at(origin);
-  // Second copy is what makes the crawl loop without a jump. It stays
-  // outside the clip until the first copy has moved up, and it is not
-  // drawn at all when the names already fit.
-  if (overflow) paint_at(origin + layout_pixel_height_ + kCreditsLoopGapPx);
+  cr->translate(0, origin);
+  layout_->show_in_cairo_context(cr);
 
   cr->restore();
   return true;
@@ -1495,9 +1562,11 @@ void MainWindow::on_mapped() {
   auto window = get_window();
   if (window && (window->get_state() & Gdk::WINDOW_STATE_ICONIFIED)) {
     iconified_ = true;
+    supporters_names_view_.set_window_hidden(true);
     return;
   }
   iconified_ = false;
+  supporters_names_view_.set_window_hidden(false);
   start_refresh_timer();
   schedule_refresh();
 }
@@ -1508,6 +1577,7 @@ bool MainWindow::on_window_state(GdkEventWindowState* event) {
   if (!event) return false;
   const bool now_iconified =
       (event->new_window_state & GDK_WINDOW_STATE_ICONIFIED) != 0;
+  supporters_names_view_.set_window_hidden(now_iconified);
   if (now_iconified) {
     iconified_ = true;
     stop_refresh_work();

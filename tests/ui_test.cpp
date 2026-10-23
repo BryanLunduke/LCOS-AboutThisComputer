@@ -2,6 +2,7 @@
 // Headless-display checks for the window: ellipsized OS line, Force Close
 // keyboard popup, a scrollbar that is not an overlay, and LCOS System as
 // the last row inside the application list.
+#include "about_logic.hpp"
 #include "app_row.hpp"
 #include "main_window.hpp"
 #include "window_enum.hpp"
@@ -715,9 +716,9 @@ void test_window_layout() {
   // Jon Darrow is second and Steve Rockefeller third. The list ends
   // pondo_hound, Bobby Hollingsworth, Otto R. Doll, RussWill, xhighj, R3,
   // naterthegreater, Neil Stevens, Fischer, cowprint, KekPriestess of
-  // Kekistan, john-okeefe, Brian Woodruff. The wrapped block still
-  // fits in the header beside the logo (no crawl clip) inside the
-  // 520×360 window.
+  // Kekistan, john-okeefe, Brian Woodruff, Richard Mead. Richard Mead
+  // wraps to a seventh line, so the names roll up like movie credits
+  // through the six-line area 0.9.6-3 had, inside the same 520×360 window.
   lundukeabout::SupportersNamesView* names = nullptr;
   wait_for([&] {
     names = nullptr;
@@ -754,6 +755,7 @@ void test_window_layout() {
         "KekPriestess of Kekistan",
         "john-okeefe",
         "Brian Woodruff",
+        "Richard Mead",
     };
     std::vector<std::string> shown_entries;
     std::string current;
@@ -767,25 +769,26 @@ void test_window_layout() {
       current.push_back(shown[i]);
     }
     shown_entries.push_back(current);
-    constexpr std::size_t kCount = 23;
+    constexpr std::size_t kCount = 24;
     CHECK(shown_entries.size() == kCount);
     CHECK(shown_entries.size() >= 3);
     CHECK(shown_entries[0] == "\"Fuzzy\"");
     CHECK(shown_entries[1] == "Jon Darrow");
     CHECK(shown_entries[2] == "Steve Rockefeller");
-    CHECK(shown_entries[shown_entries.size() - 13] == "pondo_hound");
-    CHECK(shown_entries[shown_entries.size() - 12] == "Bobby Hollingsworth");
-    CHECK(shown_entries[shown_entries.size() - 11] == "Otto R. Doll");
-    CHECK(shown_entries[shown_entries.size() - 10] == "RussWill");
-    CHECK(shown_entries[shown_entries.size() - 9] == "xhighj");
-    CHECK(shown_entries[shown_entries.size() - 8] == "R3");
-    CHECK(shown_entries[shown_entries.size() - 7] == "naterthegreater");
-    CHECK(shown_entries[shown_entries.size() - 6] == "Neil Stevens");
-    CHECK(shown_entries[shown_entries.size() - 5] == "Fischer");
-    CHECK(shown_entries[shown_entries.size() - 4] == "cowprint");
-    CHECK(shown_entries[shown_entries.size() - 3] == "KekPriestess of Kekistan");
-    CHECK(shown_entries[shown_entries.size() - 2] == "john-okeefe");
-    CHECK(shown_entries.back() == "Brian Woodruff");
+    CHECK(shown_entries[shown_entries.size() - 14] == "pondo_hound");
+    CHECK(shown_entries[shown_entries.size() - 13] == "Bobby Hollingsworth");
+    CHECK(shown_entries[shown_entries.size() - 12] == "Otto R. Doll");
+    CHECK(shown_entries[shown_entries.size() - 11] == "RussWill");
+    CHECK(shown_entries[shown_entries.size() - 10] == "xhighj");
+    CHECK(shown_entries[shown_entries.size() - 9] == "R3");
+    CHECK(shown_entries[shown_entries.size() - 8] == "naterthegreater");
+    CHECK(shown_entries[shown_entries.size() - 7] == "Neil Stevens");
+    CHECK(shown_entries[shown_entries.size() - 6] == "Fischer");
+    CHECK(shown_entries[shown_entries.size() - 5] == "cowprint");
+    CHECK(shown_entries[shown_entries.size() - 4] == "KekPriestess of Kekistan");
+    CHECK(shown_entries[shown_entries.size() - 3] == "john-okeefe");
+    CHECK(shown_entries[shown_entries.size() - 2] == "Brian Woodruff");
+    CHECK(shown_entries.back() == "Richard Mead");
     CHECK(shown_entries[7] == "Jesse Buschhaus");
     CHECK(shown_entries == expected);
     CHECK(shown ==
@@ -793,20 +796,37 @@ void test_window_layout() {
           "Mike Beasley, Jack Beckman, Jesse Buschhaus, Bob Lorna, AtrusBatleth, "
           "pondo_hound, Bobby Hollingsworth, Otto R. Doll, RussWill, xhighj, R3, "
           "naterthegreater, Neil Stevens, Fischer, cowprint, "
-          "KekPriestess of Kekistan, john-okeefe, Brian Woodruff");
+          "KekPriestess of Kekistan, john-okeefe, Brian Woodruff, Richard Mead");
 
     const int content_h = names->wrapped_content_height();
     const int view_h = names->get_allocated_height();
     const int view_w = names->get_allocated_width();
-    if (content_h > view_h + 1) {
-      std::cerr << "supporters clip content=" << content_h << " alloc=" << view_h
-                << " width=" << view_w << "\n";
-    }
+    std::cerr << "supporters content=" << content_h << " view=" << view_h
+              << " width=" << view_w << " six_lines=" << names->lines_height(6)
+              << " line=" << names->line_height() << "\n";
     CHECK(view_w >= 40);
     CHECK(content_h > 1);
-    // The wrapped names stay inside the view. A 1px slack matches the
-    // crawl threshold, so this is fully visible and not scrolling.
-    CHECK(content_h <= view_h + 1);
+    // The view is never taller than the six-line area 0.9.6-3 had. With the
+    // installed 120px mark the list wraps to seven lines and crawls; this
+    // test's generic icon leaves a wider row, where it still fits.
+    CHECK(view_h <= names->lines_height(6));
+    if (content_h > names->lines_height(6)) {
+      CHECK(view_h == names->lines_height(6));
+      CHECK(names->crawling());
+    } else {
+      CHECK(content_h <= view_h + 1);
+      CHECK(!names->crawling());
+    }
+    // Same window as 0.9.6-3.
+    CHECK(window.get_allocated_width() == 520);
+    CHECK(window.get_allocated_height() == 360);
+    // The whole list is in the accessible tree, not only the visible part.
+    auto accessible = names->get_accessible();
+    CHECK(accessible);
+    if (accessible) {
+      CHECK(accessible->get_name() == names->text());
+      CHECK(accessible->get_role() == Atk::ROLE_LABEL);
+    }
     int names_x = 0;
     int names_y = 0;
     const bool names_placed = names->translate_coordinates(window, 0, 0, names_x, names_y);
@@ -815,8 +835,68 @@ void test_window_layout() {
     CHECK(names_y >= 0);
     CHECK(names_y + view_h <= window.get_allocated_height());
     CHECK(names_x + view_w <= window.get_allocated_width());
+
   }
 
+  window.hide();
+  drain();
+}
+
+// The header row beside the installed 120px mark is 520 - 2×12 margins - 120
+// - 16 spacing wide. At that width the 24 names wrap past six lines, so the
+// view holds six lines and crawls.
+void test_supporters_credits_crawl() {
+  Gtk::Window window;
+  window.set_default_size(360, 200);
+  Gtk::Box box(Gtk::ORIENTATION_VERTICAL, 0);
+  box.set_size_request(360, -1);
+  box.set_halign(Gtk::ALIGN_START);
+  box.set_valign(Gtk::ALIGN_START);
+  lundukeabout::SupportersNamesView names;
+  names.set_max_height(400);
+  names.set_text(lundukeabout::join_supporter_entries(lundukeabout::builtin_supporter_entries()));
+  box.pack_start(names, Gtk::PACK_SHRINK);
+  window.add(box);
+  window.show_all();
+  wait_for([&] {
+    return names.get_allocated_width() >= 40 && names.get_allocated_height() > 1 &&
+           names.wrapped_content_height() > 0;
+  });
+  const int content_h = names.wrapped_content_height();
+  const int view_h = names.get_allocated_height();
+  std::cerr << "credits content=" << content_h << " view=" << view_h
+            << " width=" << names.get_allocated_width()
+            << " six_lines=" << names.lines_height(6) << "\n";
+  CHECK(names.get_allocated_width() == 360);
+  CHECK(content_h > names.lines_height(6));
+  CHECK(view_h == names.lines_height(6));
+  CHECK(names.crawling());
+  auto accessible = names.get_accessible();
+  CHECK(accessible);
+  if (accessible) {
+    CHECK(accessible->get_name() == names.text());
+    CHECK(accessible->get_role() == Atk::ROLE_LABEL);
+  }
+  // Iconified: no frame callback. Restored: it resumes.
+  names.set_window_hidden(true);
+  CHECK(!names.crawling());
+  names.set_window_hidden(false);
+  CHECK(names.crawling());
+  // Unmapped: no frame callback.
+  window.hide();
+  drain();
+  CHECK(!names.crawling());
+  window.show();
+  drain();
+  CHECK(names.crawling());
+  // gtk-enable-animations=false: still and top-aligned.
+  auto settings = Gtk::Settings::get_default();
+  settings->property_gtk_enable_animations() = false;
+  drain();
+  CHECK(!names.crawling());
+  settings->property_gtk_enable_animations() = true;
+  drain();
+  CHECK(names.crawling());
   window.hide();
   drain();
 }
@@ -1678,6 +1758,7 @@ int main(int argc, char** argv) {
   test_window_layout();
   test_lcos_system_row();
   test_cpu_gpu_text_visible();
+  test_supporters_credits_crawl();
   test_return_activates_row();
   test_scrollbar_thumb();
   test_menu_tracks_scrolled_row();

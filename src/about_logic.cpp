@@ -1124,6 +1124,16 @@ bool credits_should_crawl(int view_height, int layout_pixel_height, int fit_slac
   return layout_pixel_height > view_height + fit_slack;
 }
 
+double credits_advance(double offset, double step, int content_height, int view_height) {
+  double next = offset + (step > 0.0 ? step : 0.0);
+  // Last line has passed the top: start again with the first line just
+  // below the bottom edge.
+  if (content_height > 0 && next >= static_cast<double>(content_height)) {
+    next = -static_cast<double>(view_height > 0 ? view_height : 0);
+  }
+  return next;
+}
+
 CreditsTickResult credits_on_tick(bool names_overflow, bool pointer_over) {
   if (!names_overflow || pointer_over) return CreditsTickResult::StopAndClearId;
   return CreditsTickResult::Continue;
@@ -1608,6 +1618,7 @@ std::vector<std::string> builtin_supporter_entries() {
       "KekPriestess of Kekistan",
       "john-okeefe",
       "Brian Woodruff",
+      "Richard Mead",
   };
 }
 
