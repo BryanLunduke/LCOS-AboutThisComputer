@@ -32,6 +32,12 @@ public:
   // Wrapped pixel height at the allocated width, or 0 while that width is
   // still the minimum-size probe.
   int wrapped_content_height() const;
+  // Height of the first `lines` wrapped lines at the allocated width.
+  int lines_height(int lines) const;
+  // True while the credits frame callback is armed.
+  bool crawling() const { return tick_id_ != 0; }
+  // The toplevel was iconified (true) or restored (false).
+  void set_window_hidden(bool hidden);
 
 protected:
   Gtk::SizeRequestMode get_request_mode_vfunc() const override;
@@ -44,6 +50,8 @@ protected:
   bool on_draw(const Cairo::RefPtr<Cairo::Context>& cr) override;
   bool on_enter_notify_event(GdkEventCrossing* crossing_event) override;
   bool on_leave_notify_event(GdkEventCrossing* crossing_event) override;
+  void on_map() override;
+  void on_unmap() override;
 
 private:
   void ensure_layout(int width) const;
@@ -53,6 +61,7 @@ private:
   void stop_tick();
   bool on_tick(const Glib::RefPtr<Gdk::FrameClock>& clock);
   bool names_overflow(int view_height) const;
+  bool animations_enabled() const;
 
   Glib::ustring text_;
   int max_height_ = 0;
@@ -64,7 +73,12 @@ private:
   mutable int layout_width_ = -1;
   mutable int layout_pixel_height_ = 0;
   mutable int single_line_height_ = 0;
+  // Height of the first kCreditsVisibleLines lines, or the whole layout
+  // when it has no more lines than that.
+  mutable int credits_view_height_ = 0;
   bool pointer_over_ = false;
+  bool window_hidden_ = false;
+  sigc::connection animations_conn_;
 };
 
 class MainWindow : public Gtk::ApplicationWindow {

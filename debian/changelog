@@ -1,3 +1,17 @@
+lunduke-about (0.9.6-4) unstable; urgency=medium
+
+  * Add Richard Mead to the end of the Supporters list, after Brian Woodruff
+    (data/supporters.txt and the built-in fallback; 24 names).
+  * The names now wrap to a seventh line, so they scroll up slowly (24 px/s)
+    like movie credits inside the same six-line area 0.9.6-3 had; once the
+    last name leaves the top, the list comes back in from the bottom. The
+    window and the rest of the About layout are unchanged. The crawl stops
+    while the window is hidden or iconified, pauses under the pointer, stays
+    still with gtk-enable-animations=false, and the full list is the
+    accessible name of the names area.
+
+ -- Phil <phil@brushpad.local>  Fri, 23 Oct 2026 15:52:18 +0000
+
 lunduke-about (0.9.6-3) unstable; urgency=medium
 
   * Add Brian Woodruff to the end of the Supporters list, after john-okeefe

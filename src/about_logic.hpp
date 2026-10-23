@@ -370,6 +370,11 @@ enum class CreditsTickResult {
 
 CreditsTickResult credits_on_tick(bool names_overflow, bool pointer_over);
 
+// Movie-credits offset: grows by step until the last line (content_height)
+// has left the top, then restarts at -view_height so the list scrolls in
+// again from the bottom edge.
+double credits_advance(double offset, double step, int content_height, int view_height);
+
 double clamp_scroll_value(double value, double upper, double page_size);
 
 // True when a row whose bottom is row_bottom has been given a place inside
