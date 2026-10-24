@@ -717,9 +717,10 @@ void test_window_layout() {
   // pondo_hound, Bobby Hollingsworth, Otto R. Doll, RussWill, xhighj, R3,
   // naterthegreater, Neil Stevens, Fischer, cowprint, KekPriestess of
   // Kekistan, john-okeefe, Brian Woodruff, Richard Mead, Simon the Floppy
-  // Disk Whisperer. Since Richard Mead the list wraps past six lines, so
-  // the names roll up like movie credits through the six-line area 0.9.6-3
-  // had, inside the same 520×360 window.
+  // Disk Whisperer, Danzo & Delzo (plain text, so the & shows as-is).
+  // Since Richard Mead the list wraps past six lines, so the names roll up
+  // like movie credits through the six-line area 0.9.6-3 had, inside the
+  // same 520×360 window.
   lundukeabout::SupportersNamesView* names = nullptr;
   wait_for([&] {
     names = nullptr;
@@ -758,6 +759,7 @@ void test_window_layout() {
         "Brian Woodruff",
         "Richard Mead",
         "Simon the Floppy Disk Whisperer",
+        "Danzo & Delzo",
     };
     std::vector<std::string> shown_entries;
     std::string current;
@@ -771,27 +773,28 @@ void test_window_layout() {
       current.push_back(shown[i]);
     }
     shown_entries.push_back(current);
-    constexpr std::size_t kCount = 25;
+    constexpr std::size_t kCount = 26;
     CHECK(shown_entries.size() == kCount);
     CHECK(shown_entries.size() >= 3);
     CHECK(shown_entries[0] == "\"Fuzzy\"");
     CHECK(shown_entries[1] == "Jon Darrow");
     CHECK(shown_entries[2] == "Steve Rockefeller");
-    CHECK(shown_entries[shown_entries.size() - 15] == "pondo_hound");
-    CHECK(shown_entries[shown_entries.size() - 14] == "Bobby Hollingsworth");
-    CHECK(shown_entries[shown_entries.size() - 13] == "Otto R. Doll");
-    CHECK(shown_entries[shown_entries.size() - 12] == "RussWill");
-    CHECK(shown_entries[shown_entries.size() - 11] == "xhighj");
-    CHECK(shown_entries[shown_entries.size() - 10] == "R3");
-    CHECK(shown_entries[shown_entries.size() - 9] == "naterthegreater");
-    CHECK(shown_entries[shown_entries.size() - 8] == "Neil Stevens");
-    CHECK(shown_entries[shown_entries.size() - 7] == "Fischer");
-    CHECK(shown_entries[shown_entries.size() - 6] == "cowprint");
-    CHECK(shown_entries[shown_entries.size() - 5] == "KekPriestess of Kekistan");
-    CHECK(shown_entries[shown_entries.size() - 4] == "john-okeefe");
-    CHECK(shown_entries[shown_entries.size() - 3] == "Brian Woodruff");
-    CHECK(shown_entries[shown_entries.size() - 2] == "Richard Mead");
-    CHECK(shown_entries.back() == "Simon the Floppy Disk Whisperer");
+    CHECK(shown_entries[shown_entries.size() - 16] == "pondo_hound");
+    CHECK(shown_entries[shown_entries.size() - 15] == "Bobby Hollingsworth");
+    CHECK(shown_entries[shown_entries.size() - 14] == "Otto R. Doll");
+    CHECK(shown_entries[shown_entries.size() - 13] == "RussWill");
+    CHECK(shown_entries[shown_entries.size() - 12] == "xhighj");
+    CHECK(shown_entries[shown_entries.size() - 11] == "R3");
+    CHECK(shown_entries[shown_entries.size() - 10] == "naterthegreater");
+    CHECK(shown_entries[shown_entries.size() - 9] == "Neil Stevens");
+    CHECK(shown_entries[shown_entries.size() - 8] == "Fischer");
+    CHECK(shown_entries[shown_entries.size() - 7] == "cowprint");
+    CHECK(shown_entries[shown_entries.size() - 6] == "KekPriestess of Kekistan");
+    CHECK(shown_entries[shown_entries.size() - 5] == "john-okeefe");
+    CHECK(shown_entries[shown_entries.size() - 4] == "Brian Woodruff");
+    CHECK(shown_entries[shown_entries.size() - 3] == "Richard Mead");
+    CHECK(shown_entries[shown_entries.size() - 2] == "Simon the Floppy Disk Whisperer");
+    CHECK(shown_entries.back() == "Danzo & Delzo");
     CHECK(shown_entries[7] == "Jesse Buschhaus");
     CHECK(shown_entries == expected);
     CHECK(shown ==
@@ -800,7 +803,7 @@ void test_window_layout() {
           "pondo_hound, Bobby Hollingsworth, Otto R. Doll, RussWill, xhighj, R3, "
           "naterthegreater, Neil Stevens, Fischer, cowprint, "
           "KekPriestess of Kekistan, john-okeefe, Brian Woodruff, Richard Mead, "
-          "Simon the Floppy Disk Whisperer");
+          "Simon the Floppy Disk Whisperer, Danzo & Delzo");
 
     const int content_h = names->wrapped_content_height();
     const int view_h = names->get_allocated_height();
