@@ -2203,7 +2203,8 @@ int main() {
   // Fischer, cowprint after naterthegreater; 0.9.6-2 appends
   // KekPriestess of Kekistan, john-okeefe after cowprint; 0.9.6-3
   // appends Brian Woodruff after john-okeefe; 0.9.6-4 appends Richard
-  // Mead after Brian Woodruff (24 entries).
+  // Mead after Brian Woodruff; Simon the Floppy Disk Whisperer follows
+  // Richard Mead (25 entries).
   // The file and the built-in fallback stay the same list.
   {
     const std::vector<std::string> expected = {
@@ -2231,8 +2232,9 @@ int main() {
         "john-okeefe",
         "Brian Woodruff",
         "Richard Mead",
+        "Simon the Floppy Disk Whisperer",
     };
-    constexpr std::size_t kCount = 24;
+    constexpr std::size_t kCount = 25;
     std::string path;
     if (const char* env = std::getenv("LUNDUKE_SUPPORTERS_TXT")) path = env;
     if (path.empty()) {
@@ -2250,20 +2252,21 @@ int main() {
     CHECK(entries[0] == "\"Fuzzy\"");
     CHECK(entries[1] == "Jon Darrow");
     CHECK(entries[2] == "Steve Rockefeller");
-    CHECK(entries[entries.size() - 14] == "pondo_hound");
-    CHECK(entries[entries.size() - 13] == "Bobby Hollingsworth");
-    CHECK(entries[entries.size() - 12] == "Otto R. Doll");
-    CHECK(entries[entries.size() - 11] == "RussWill");
-    CHECK(entries[entries.size() - 10] == "xhighj");
-    CHECK(entries[entries.size() - 9] == "R3");
-    CHECK(entries[entries.size() - 8] == "naterthegreater");
-    CHECK(entries[entries.size() - 7] == "Neil Stevens");
-    CHECK(entries[entries.size() - 6] == "Fischer");
-    CHECK(entries[entries.size() - 5] == "cowprint");
-    CHECK(entries[entries.size() - 4] == "KekPriestess of Kekistan");
-    CHECK(entries[entries.size() - 3] == "john-okeefe");
-    CHECK(entries[entries.size() - 2] == "Brian Woodruff");
-    CHECK(entries.back() == "Richard Mead");
+    CHECK(entries[entries.size() - 15] == "pondo_hound");
+    CHECK(entries[entries.size() - 14] == "Bobby Hollingsworth");
+    CHECK(entries[entries.size() - 13] == "Otto R. Doll");
+    CHECK(entries[entries.size() - 12] == "RussWill");
+    CHECK(entries[entries.size() - 11] == "xhighj");
+    CHECK(entries[entries.size() - 10] == "R3");
+    CHECK(entries[entries.size() - 9] == "naterthegreater");
+    CHECK(entries[entries.size() - 8] == "Neil Stevens");
+    CHECK(entries[entries.size() - 7] == "Fischer");
+    CHECK(entries[entries.size() - 6] == "cowprint");
+    CHECK(entries[entries.size() - 5] == "KekPriestess of Kekistan");
+    CHECK(entries[entries.size() - 4] == "john-okeefe");
+    CHECK(entries[entries.size() - 3] == "Brian Woodruff");
+    CHECK(entries[entries.size() - 2] == "Richard Mead");
+    CHECK(entries.back() == "Simon the Floppy Disk Whisperer");
     CHECK(entries[7] == "Jesse Buschhaus");
     CHECK(entries == expected);
     CHECK(builtin_supporter_entries() == expected);
@@ -2272,7 +2275,8 @@ int main() {
           "Mike Beasley, Jack Beckman, Jesse Buschhaus, Bob Lorna, AtrusBatleth, "
           "pondo_hound, Bobby Hollingsworth, Otto R. Doll, RussWill, xhighj, R3, "
           "naterthegreater, Neil Stevens, Fischer, cowprint, "
-          "KekPriestess of Kekistan, john-okeefe, Brian Woodruff, Richard Mead");
+          "KekPriestess of Kekistan, john-okeefe, Brian Woodruff, Richard Mead, "
+          "Simon the Floppy Disk Whisperer");
   }
 
   // Round 7: desktop Name, prettified class, row-tree rollup, refresh pace.
