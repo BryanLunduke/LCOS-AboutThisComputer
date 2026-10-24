@@ -1620,6 +1620,7 @@ std::vector<std::string> builtin_supporter_entries() {
       "Brian Woodruff",
       "Richard Mead",
       "Simon the Floppy Disk Whisperer",
+      "Danzo & Delzo",
   };
 }
 
