@@ -1622,6 +1622,7 @@ std::vector<std::string> builtin_supporter_entries() {
       "Simon the Floppy Disk Whisperer",
       "Danzo & Delzo",
       "Lurksmore",
+      "MacroPheliac",
   };
 }
 
