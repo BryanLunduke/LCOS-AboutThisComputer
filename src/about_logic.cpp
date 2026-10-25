@@ -1621,6 +1621,7 @@ std::vector<std::string> builtin_supporter_entries() {
       "Richard Mead",
       "Simon the Floppy Disk Whisperer",
       "Danzo & Delzo",
+      "Lurksmore",
   };
 }
 
