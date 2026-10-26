@@ -2206,7 +2206,7 @@ int main() {
   // Mead after Brian Woodruff; Simon the Floppy Disk Whisperer follows
   // Richard Mead; Danzo & Delzo (one entry, literal ampersand) follows
   // Simon; Lurksmore follows Danzo & Delzo; MacroPheliac follows
-  // Lurksmore (28 entries).
+  // Lurksmore; ClarkP57 follows MacroPheliac (29 entries).
   // The file and the built-in fallback stay the same list.
   {
     const std::vector<std::string> expected = {
@@ -2238,8 +2238,9 @@ int main() {
         "Danzo & Delzo",
         "Lurksmore",
         "MacroPheliac",
+        "ClarkP57",
     };
-    constexpr std::size_t kCount = 28;
+    constexpr std::size_t kCount = 29;
     std::string path;
     if (const char* env = std::getenv("LUNDUKE_SUPPORTERS_TXT")) path = env;
     if (path.empty()) {
@@ -2257,24 +2258,25 @@ int main() {
     CHECK(entries[0] == "\"Fuzzy\"");
     CHECK(entries[1] == "Jon Darrow");
     CHECK(entries[2] == "Steve Rockefeller");
-    CHECK(entries[entries.size() - 18] == "pondo_hound");
-    CHECK(entries[entries.size() - 17] == "Bobby Hollingsworth");
-    CHECK(entries[entries.size() - 16] == "Otto R. Doll");
-    CHECK(entries[entries.size() - 15] == "RussWill");
-    CHECK(entries[entries.size() - 14] == "xhighj");
-    CHECK(entries[entries.size() - 13] == "R3");
-    CHECK(entries[entries.size() - 12] == "naterthegreater");
-    CHECK(entries[entries.size() - 11] == "Neil Stevens");
-    CHECK(entries[entries.size() - 10] == "Fischer");
-    CHECK(entries[entries.size() - 9] == "cowprint");
-    CHECK(entries[entries.size() - 8] == "KekPriestess of Kekistan");
-    CHECK(entries[entries.size() - 7] == "john-okeefe");
-    CHECK(entries[entries.size() - 6] == "Brian Woodruff");
-    CHECK(entries[entries.size() - 5] == "Richard Mead");
-    CHECK(entries[entries.size() - 4] == "Simon the Floppy Disk Whisperer");
-    CHECK(entries[entries.size() - 3] == "Danzo & Delzo");
-    CHECK(entries[entries.size() - 2] == "Lurksmore");
-    CHECK(entries.back() == "MacroPheliac");
+    CHECK(entries[entries.size() - 19] == "pondo_hound");
+    CHECK(entries[entries.size() - 18] == "Bobby Hollingsworth");
+    CHECK(entries[entries.size() - 17] == "Otto R. Doll");
+    CHECK(entries[entries.size() - 16] == "RussWill");
+    CHECK(entries[entries.size() - 15] == "xhighj");
+    CHECK(entries[entries.size() - 14] == "R3");
+    CHECK(entries[entries.size() - 13] == "naterthegreater");
+    CHECK(entries[entries.size() - 12] == "Neil Stevens");
+    CHECK(entries[entries.size() - 11] == "Fischer");
+    CHECK(entries[entries.size() - 10] == "cowprint");
+    CHECK(entries[entries.size() - 9] == "KekPriestess of Kekistan");
+    CHECK(entries[entries.size() - 8] == "john-okeefe");
+    CHECK(entries[entries.size() - 7] == "Brian Woodruff");
+    CHECK(entries[entries.size() - 6] == "Richard Mead");
+    CHECK(entries[entries.size() - 5] == "Simon the Floppy Disk Whisperer");
+    CHECK(entries[entries.size() - 4] == "Danzo & Delzo");
+    CHECK(entries[entries.size() - 3] == "Lurksmore");
+    CHECK(entries[entries.size() - 2] == "MacroPheliac");
+    CHECK(entries.back() == "ClarkP57");
     CHECK(entries[7] == "Jesse Buschhaus");
     CHECK(entries == expected);
     CHECK(builtin_supporter_entries() == expected);
@@ -2284,7 +2286,7 @@ int main() {
           "pondo_hound, Bobby Hollingsworth, Otto R. Doll, RussWill, xhighj, R3, "
           "naterthegreater, Neil Stevens, Fischer, cowprint, "
           "KekPriestess of Kekistan, john-okeefe, Brian Woodruff, Richard Mead, "
-          "Simon the Floppy Disk Whisperer, Danzo & Delzo, Lurksmore, MacroPheliac");
+          "Simon the Floppy Disk Whisperer, Danzo & Delzo, Lurksmore, MacroPheliac, ClarkP57");
   }
 
   // Round 7: desktop Name, prettified class, row-tree rollup, refresh pace.

@@ -1623,6 +1623,7 @@ std::vector<std::string> builtin_supporter_entries() {
       "Danzo & Delzo",
       "Lurksmore",
       "MacroPheliac",
+      "ClarkP57",
   };
 }
 
