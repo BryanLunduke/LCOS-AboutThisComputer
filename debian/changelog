@@ -1,3 +1,10 @@
+lunduke-about (0.9.7-3) unstable; urgency=medium
+
+  * Add MacroPheliac and ClarkP57 to the end of the Supporters list, after
+    Lurksmore (data/supporters.txt and the built-in fallback; 29 names).
+
+ -- Phil <phil@brushpad.local>  Mon, 26 Oct 2026 14:35:46 +0000
+
 lunduke-about (0.9.7-2) unstable; urgency=medium
 
   * Add Simon the Floppy Disk Whisperer, Danzo & Delzo and Lurksmore to the
