@@ -718,7 +718,7 @@ void test_window_layout() {
   // naterthegreater, Neil Stevens, Fischer, cowprint, KekPriestess of
   // Kekistan, john-okeefe, Brian Woodruff, Richard Mead, Simon the Floppy
   // Disk Whisperer, Danzo & Delzo (plain text, so the & shows as-is),
-  // Lurksmore, MacroPheliac.
+  // Lurksmore, MacroPheliac, ClarkP57.
   // Since Richard Mead the list wraps past six lines, so the names roll up
   // like movie credits through the six-line area 0.9.6-3 had, inside the
   // same 520×360 window.
@@ -763,6 +763,7 @@ void test_window_layout() {
         "Danzo & Delzo",
         "Lurksmore",
         "MacroPheliac",
+        "ClarkP57",
     };
     std::vector<std::string> shown_entries;
     std::string current;
@@ -776,30 +777,31 @@ void test_window_layout() {
       current.push_back(shown[i]);
     }
     shown_entries.push_back(current);
-    constexpr std::size_t kCount = 28;
+    constexpr std::size_t kCount = 29;
     CHECK(shown_entries.size() == kCount);
     CHECK(shown_entries.size() >= 3);
     CHECK(shown_entries[0] == "\"Fuzzy\"");
     CHECK(shown_entries[1] == "Jon Darrow");
     CHECK(shown_entries[2] == "Steve Rockefeller");
-    CHECK(shown_entries[shown_entries.size() - 18] == "pondo_hound");
-    CHECK(shown_entries[shown_entries.size() - 17] == "Bobby Hollingsworth");
-    CHECK(shown_entries[shown_entries.size() - 16] == "Otto R. Doll");
-    CHECK(shown_entries[shown_entries.size() - 15] == "RussWill");
-    CHECK(shown_entries[shown_entries.size() - 14] == "xhighj");
-    CHECK(shown_entries[shown_entries.size() - 13] == "R3");
-    CHECK(shown_entries[shown_entries.size() - 12] == "naterthegreater");
-    CHECK(shown_entries[shown_entries.size() - 11] == "Neil Stevens");
-    CHECK(shown_entries[shown_entries.size() - 10] == "Fischer");
-    CHECK(shown_entries[shown_entries.size() - 9] == "cowprint");
-    CHECK(shown_entries[shown_entries.size() - 8] == "KekPriestess of Kekistan");
-    CHECK(shown_entries[shown_entries.size() - 7] == "john-okeefe");
-    CHECK(shown_entries[shown_entries.size() - 6] == "Brian Woodruff");
-    CHECK(shown_entries[shown_entries.size() - 5] == "Richard Mead");
-    CHECK(shown_entries[shown_entries.size() - 4] == "Simon the Floppy Disk Whisperer");
-    CHECK(shown_entries[shown_entries.size() - 3] == "Danzo & Delzo");
-    CHECK(shown_entries[shown_entries.size() - 2] == "Lurksmore");
-    CHECK(shown_entries.back() == "MacroPheliac");
+    CHECK(shown_entries[shown_entries.size() - 19] == "pondo_hound");
+    CHECK(shown_entries[shown_entries.size() - 18] == "Bobby Hollingsworth");
+    CHECK(shown_entries[shown_entries.size() - 17] == "Otto R. Doll");
+    CHECK(shown_entries[shown_entries.size() - 16] == "RussWill");
+    CHECK(shown_entries[shown_entries.size() - 15] == "xhighj");
+    CHECK(shown_entries[shown_entries.size() - 14] == "R3");
+    CHECK(shown_entries[shown_entries.size() - 13] == "naterthegreater");
+    CHECK(shown_entries[shown_entries.size() - 12] == "Neil Stevens");
+    CHECK(shown_entries[shown_entries.size() - 11] == "Fischer");
+    CHECK(shown_entries[shown_entries.size() - 10] == "cowprint");
+    CHECK(shown_entries[shown_entries.size() - 9] == "KekPriestess of Kekistan");
+    CHECK(shown_entries[shown_entries.size() - 8] == "john-okeefe");
+    CHECK(shown_entries[shown_entries.size() - 7] == "Brian Woodruff");
+    CHECK(shown_entries[shown_entries.size() - 6] == "Richard Mead");
+    CHECK(shown_entries[shown_entries.size() - 5] == "Simon the Floppy Disk Whisperer");
+    CHECK(shown_entries[shown_entries.size() - 4] == "Danzo & Delzo");
+    CHECK(shown_entries[shown_entries.size() - 3] == "Lurksmore");
+    CHECK(shown_entries[shown_entries.size() - 2] == "MacroPheliac");
+    CHECK(shown_entries.back() == "ClarkP57");
     CHECK(shown_entries[7] == "Jesse Buschhaus");
     CHECK(shown_entries == expected);
     CHECK(shown ==
@@ -808,7 +810,7 @@ void test_window_layout() {
           "pondo_hound, Bobby Hollingsworth, Otto R. Doll, RussWill, xhighj, R3, "
           "naterthegreater, Neil Stevens, Fischer, cowprint, "
           "KekPriestess of Kekistan, john-okeefe, Brian Woodruff, Richard Mead, "
-          "Simon the Floppy Disk Whisperer, Danzo & Delzo, Lurksmore, MacroPheliac");
+          "Simon the Floppy Disk Whisperer, Danzo & Delzo, Lurksmore, MacroPheliac, ClarkP57");
 
     const int content_h = names->wrapped_content_height();
     const int view_h = names->get_allocated_height();
