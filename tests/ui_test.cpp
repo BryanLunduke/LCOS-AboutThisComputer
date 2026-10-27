@@ -713,12 +713,14 @@ void test_window_layout() {
     CHECK(outside == 0);
   }
 
-  // Jon Darrow is second and Steve Rockefeller third. The list ends
+  // Jon Darrow is second and Steve Rockefeller third; Barble Bapkins is
+  // tenth, between Bob Lorna and AtrusBatleth. The list ends
   // pondo_hound, Bobby Hollingsworth, Otto R. Doll, RussWill, xhighj, R3,
   // naterthegreater, Neil Stevens, Fischer, cowprint, KekPriestess of
   // Kekistan, john-okeefe, Brian Woodruff, Richard Mead, Simon the Floppy
   // Disk Whisperer, Danzo & Delzo (plain text, so the & shows as-is),
-  // Lurksmore, MacroPheliac, ClarkP57.
+  // Lurksmore, MacroPheliac, ClarkP57, deano186, Johnnydollar2, CTG,
+  // local_Dave, Mikkel Meinike, Darko Kernytsky.
   // Since Richard Mead the list wraps past six lines, so the names roll up
   // like movie credits through the six-line area 0.9.6-3 had, inside the
   // same 520×360 window.
@@ -744,6 +746,7 @@ void test_window_layout() {
         "Jack Beckman",
         "Jesse Buschhaus",
         "Bob Lorna",
+        "Barble Bapkins",
         "AtrusBatleth",
         "pondo_hound",
         "Bobby Hollingsworth",
@@ -764,6 +767,12 @@ void test_window_layout() {
         "Lurksmore",
         "MacroPheliac",
         "ClarkP57",
+        "deano186",
+        "Johnnydollar2",
+        "CTG",
+        "local_Dave",
+        "Mikkel Meinike",
+        "Darko Kernytsky",
     };
     std::vector<std::string> shown_entries;
     std::string current;
@@ -777,40 +786,51 @@ void test_window_layout() {
       current.push_back(shown[i]);
     }
     shown_entries.push_back(current);
-    constexpr std::size_t kCount = 29;
+    constexpr std::size_t kCount = 36;
     CHECK(shown_entries.size() == kCount);
     CHECK(shown_entries.size() >= 3);
     CHECK(shown_entries[0] == "\"Fuzzy\"");
     CHECK(shown_entries[1] == "Jon Darrow");
     CHECK(shown_entries[2] == "Steve Rockefeller");
-    CHECK(shown_entries[shown_entries.size() - 19] == "pondo_hound");
-    CHECK(shown_entries[shown_entries.size() - 18] == "Bobby Hollingsworth");
-    CHECK(shown_entries[shown_entries.size() - 17] == "Otto R. Doll");
-    CHECK(shown_entries[shown_entries.size() - 16] == "RussWill");
-    CHECK(shown_entries[shown_entries.size() - 15] == "xhighj");
-    CHECK(shown_entries[shown_entries.size() - 14] == "R3");
-    CHECK(shown_entries[shown_entries.size() - 13] == "naterthegreater");
-    CHECK(shown_entries[shown_entries.size() - 12] == "Neil Stevens");
-    CHECK(shown_entries[shown_entries.size() - 11] == "Fischer");
-    CHECK(shown_entries[shown_entries.size() - 10] == "cowprint");
-    CHECK(shown_entries[shown_entries.size() - 9] == "KekPriestess of Kekistan");
-    CHECK(shown_entries[shown_entries.size() - 8] == "john-okeefe");
-    CHECK(shown_entries[shown_entries.size() - 7] == "Brian Woodruff");
-    CHECK(shown_entries[shown_entries.size() - 6] == "Richard Mead");
-    CHECK(shown_entries[shown_entries.size() - 5] == "Simon the Floppy Disk Whisperer");
-    CHECK(shown_entries[shown_entries.size() - 4] == "Danzo & Delzo");
-    CHECK(shown_entries[shown_entries.size() - 3] == "Lurksmore");
-    CHECK(shown_entries[shown_entries.size() - 2] == "MacroPheliac");
-    CHECK(shown_entries.back() == "ClarkP57");
+    CHECK(shown_entries[shown_entries.size() - 25] == "pondo_hound");
+    CHECK(shown_entries[shown_entries.size() - 24] == "Bobby Hollingsworth");
+    CHECK(shown_entries[shown_entries.size() - 23] == "Otto R. Doll");
+    CHECK(shown_entries[shown_entries.size() - 22] == "RussWill");
+    CHECK(shown_entries[shown_entries.size() - 21] == "xhighj");
+    CHECK(shown_entries[shown_entries.size() - 20] == "R3");
+    CHECK(shown_entries[shown_entries.size() - 19] == "naterthegreater");
+    CHECK(shown_entries[shown_entries.size() - 18] == "Neil Stevens");
+    CHECK(shown_entries[shown_entries.size() - 17] == "Fischer");
+    CHECK(shown_entries[shown_entries.size() - 16] == "cowprint");
+    CHECK(shown_entries[shown_entries.size() - 15] == "KekPriestess of Kekistan");
+    CHECK(shown_entries[shown_entries.size() - 14] == "john-okeefe");
+    CHECK(shown_entries[shown_entries.size() - 13] == "Brian Woodruff");
+    CHECK(shown_entries[shown_entries.size() - 12] == "Richard Mead");
+    CHECK(shown_entries[shown_entries.size() - 11] == "Simon the Floppy Disk Whisperer");
+    CHECK(shown_entries[shown_entries.size() - 10] == "Danzo & Delzo");
+    CHECK(shown_entries[shown_entries.size() - 9] == "Lurksmore");
+    CHECK(shown_entries[shown_entries.size() - 8] == "MacroPheliac");
+    CHECK(shown_entries[shown_entries.size() - 7] == "ClarkP57");
+    CHECK(shown_entries[shown_entries.size() - 6] == "deano186");
+    CHECK(shown_entries[shown_entries.size() - 5] == "Johnnydollar2");
+    CHECK(shown_entries[shown_entries.size() - 4] == "CTG");
+    CHECK(shown_entries[shown_entries.size() - 3] == "local_Dave");
+    CHECK(shown_entries[shown_entries.size() - 2] == "Mikkel Meinike");
+    CHECK(shown_entries.back() == "Darko Kernytsky");
     CHECK(shown_entries[7] == "Jesse Buschhaus");
+    CHECK(shown_entries[8] == "Bob Lorna");
+    CHECK(shown_entries[9] == "Barble Bapkins");
+    CHECK(shown_entries[10] == "AtrusBatleth");
     CHECK(shown_entries == expected);
     CHECK(shown ==
           "\"Fuzzy\", Jon Darrow, Steve Rockefeller, Steven P., Chris Hammond, "
-          "Mike Beasley, Jack Beckman, Jesse Buschhaus, Bob Lorna, AtrusBatleth, "
+          "Mike Beasley, Jack Beckman, Jesse Buschhaus, Bob Lorna, Barble Bapkins, "
+          "AtrusBatleth, "
           "pondo_hound, Bobby Hollingsworth, Otto R. Doll, RussWill, xhighj, R3, "
           "naterthegreater, Neil Stevens, Fischer, cowprint, "
           "KekPriestess of Kekistan, john-okeefe, Brian Woodruff, Richard Mead, "
-          "Simon the Floppy Disk Whisperer, Danzo & Delzo, Lurksmore, MacroPheliac, ClarkP57");
+          "Simon the Floppy Disk Whisperer, Danzo & Delzo, Lurksmore, MacroPheliac, ClarkP57, "
+          "deano186, Johnnydollar2, CTG, local_Dave, Mikkel Meinike, Darko Kernytsky");
 
     const int content_h = names->wrapped_content_height();
     const int view_h = names->get_allocated_height();

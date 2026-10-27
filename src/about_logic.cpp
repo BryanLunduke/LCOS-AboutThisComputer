@@ -1604,6 +1604,7 @@ std::vector<std::string> builtin_supporter_entries() {
       "Jack Beckman",
       "Jesse Buschhaus",
       "Bob Lorna",
+      "Barble Bapkins",
       "AtrusBatleth",
       "pondo_hound",
       "Bobby Hollingsworth",
@@ -1624,6 +1625,12 @@ std::vector<std::string> builtin_supporter_entries() {
       "Lurksmore",
       "MacroPheliac",
       "ClarkP57",
+      "deano186",
+      "Johnnydollar2",
+      "CTG",
+      "local_Dave",
+      "Mikkel Meinike",
+      "Darko Kernytsky",
   };
 }
 
