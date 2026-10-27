@@ -1,3 +1,14 @@
+lunduke-about (1.0.0-1) unstable; urgency=medium
+
+  * Version bump for LCOS 1.0.0.
+  * Supporters list: insert Barble Bapkins as the 10th name (after Bob
+    Lorna) and append deano186, Johnnydollar2, CTG, local_Dave, Mikkel
+    Meinike and Darko Kernytsky after ClarkP57 (data/supporters.txt and the
+    built-in fallback; 36 names).
+  * AppStream metainfo: add the 1.0.0 release.
+
+ -- Phil <phil@brushpad.local>  Tue, 27 Oct 2026 16:43:29 +0000
+
 lunduke-about (0.9.7-3) unstable; urgency=medium
 
   * Add MacroPheliac and ClarkP57 to the end of the Supporters list, after
