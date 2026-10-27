@@ -31,6 +31,11 @@
     <category>Monitor</category>
   </categories>
   <releases>
+    <release version="1.0.0" date="2026-10-27">
+      <description>
+        <p>Version for LCOS 1.0.0. Adds Barble Bapkins as the 10th name and deano186, Johnnydollar2, CTG, local_Dave, Mikkel Meinike and Darko Kernytsky to the end of the Supporters list.</p>
+      </description>
+    </release>
     <release version="0.9.6" date="2026-10-20">
       <description>
         <p>Adds Neil Stevens, Fischer and cowprint to the end of the Supporters list.</p>
