@@ -1631,6 +1631,13 @@ std::vector<std::string> builtin_supporter_entries() {
       "local_Dave",
       "Mikkel Meinike",
       "Darko Kernytsky",
+      "Dstahlback",
+      "Brad Lavis",
+      "William Nichols II",
+      "Juan M/Oldplay",
+      "cckaiser",
+      "Erik Blaire",
+      "The Jake",
   };
 }
 
