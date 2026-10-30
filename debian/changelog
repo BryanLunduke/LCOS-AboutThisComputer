@@ -1,3 +1,14 @@
+lunduke-about (1.0.0-2) unstable; urgency=medium
+
+  * Supporters list: append Dstahlback, Brad Lavis, William Nichols II,
+    Juan M/Oldplay, cckaiser, Erik Blaire and The Jake after Darko
+    Kernytsky (#46), then Ray Trautman, Logan R., Spencer Siemer, Randall
+    McPherson, Phil Allen, Doug Devine, Greg Saltis, Chuck&Rose, Tony Dip
+    and Leslie K Skidmore II after The Jake (#47) (data/supporters.txt and
+    the built-in fallback; 53 names).
+
+ -- Ted <ted@brushpad.local>  Fri, 30 Oct 2026 14:42:47 +0000
+
 lunduke-about (1.0.0-1) unstable; urgency=medium
 
   * Version bump for LCOS 1.0.0.
