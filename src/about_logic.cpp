@@ -1601,6 +1601,7 @@ std::vector<std::string> builtin_supporter_entries() {
       "Steven P.",
       "Chris Hammond",
       "Mike Beasley",
+      "Christian Inci",
       "Jack Beckman",
       "Jesse Buschhaus",
       "Bob Lorna",
@@ -1648,7 +1649,6 @@ std::vector<std::string> builtin_supporter_entries() {
       "Chuck&Rose",
       "Tony Dip",
       "Leslie K Skidmore II",
-      "Christian Inci",
   };
 }
 
