@@ -713,8 +713,9 @@ void test_window_layout() {
     CHECK(outside == 0);
   }
 
-  // Jon Darrow is second and Steve Rockefeller third; Barble Bapkins is
-  // tenth, between Bob Lorna and AtrusBatleth. The list ends
+  // Jon Darrow is second and Steve Rockefeller third; Christian Inci is
+  // seventh, between Mike Beasley and Jack Beckman; Barble Bapkins is
+  // eleventh, between Bob Lorna and AtrusBatleth. The list ends
   // pondo_hound, Bobby Hollingsworth, Otto R. Doll, RussWill, xhighj, R3,
   // naterthegreater, Neil Stevens, Fischer, cowprint, KekPriestess of
   // Kekistan, john-okeefe, Brian Woodruff, Richard Mead, Simon the Floppy
@@ -748,6 +749,7 @@ void test_window_layout() {
         "Steven P.",
         "Chris Hammond",
         "Mike Beasley",
+        "Christian Inci",
         "Jack Beckman",
         "Jesse Buschhaus",
         "Bob Lorna",
@@ -808,7 +810,7 @@ void test_window_layout() {
       current.push_back(shown[i]);
     }
     shown_entries.push_back(current);
-    constexpr std::size_t kCount = 53;
+    constexpr std::size_t kCount = 54;
     CHECK(shown_entries.size() == kCount);
     CHECK(shown_entries.size() >= 3);
     CHECK(shown_entries[0] == "\"Fuzzy\"");
@@ -856,14 +858,18 @@ void test_window_layout() {
     CHECK(shown_entries[shown_entries.size() - 3] == "Chuck&Rose");
     CHECK(shown_entries[shown_entries.size() - 2] == "Tony Dip");
     CHECK(shown_entries.back() == "Leslie K Skidmore II");
-    CHECK(shown_entries[7] == "Jesse Buschhaus");
-    CHECK(shown_entries[8] == "Bob Lorna");
-    CHECK(shown_entries[9] == "Barble Bapkins");
-    CHECK(shown_entries[10] == "AtrusBatleth");
+    CHECK(shown_entries[5] == "Mike Beasley");
+    CHECK(shown_entries[6] == "Christian Inci");
+    CHECK(shown_entries[7] == "Jack Beckman");
+    CHECK(shown_entries[8] == "Jesse Buschhaus");
+    CHECK(shown_entries[9] == "Bob Lorna");
+    CHECK(shown_entries[10] == "Barble Bapkins");
+    CHECK(shown_entries[11] == "AtrusBatleth");
     CHECK(shown_entries == expected);
     CHECK(shown ==
           "\"Fuzzy\", Jon Darrow, Steve Rockefeller, Steven P., Chris Hammond, "
-          "Mike Beasley, Jack Beckman, Jesse Buschhaus, Bob Lorna, Barble Bapkins, "
+          "Mike Beasley, Christian Inci, Jack Beckman, Jesse Buschhaus, Bob Lorna, "
+          "Barble Bapkins, "
           "AtrusBatleth, "
           "pondo_hound, Bobby Hollingsworth, Otto R. Doll, RussWill, xhighj, R3, "
           "naterthegreater, Neil Stevens, Fischer, cowprint, "

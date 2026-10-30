@@ -2214,7 +2214,10 @@ int main() {
   // Blaire, The Jake follow Darko Kernytsky; Ray Trautman, Logan R.,
   // Spencer Siemer, Randall McPherson, Phil Allen, Doug Devine, Greg
   // Saltis, Chuck&Rose (one entry, literal ampersand), Tony Dip follow
-  // The Jake; Leslie K Skidmore II follows Tony Dip (53 entries).
+  // The Jake; Leslie K Skidmore II follows Tony Dip; then the editor
+  // inserts Christian Inci at index 6 (7th, between Mike Beasley and Jack
+  // Beckman), so Jesse Buschhaus moves to index 8 and Barble Bapkins to
+  // index 10 (11th) (54 entries).
   // The file and the built-in fallback stay the same list.
   {
     const std::vector<std::string> expected = {
@@ -2224,6 +2227,7 @@ int main() {
         "Steven P.",
         "Chris Hammond",
         "Mike Beasley",
+        "Christian Inci",
         "Jack Beckman",
         "Jesse Buschhaus",
         "Bob Lorna",
@@ -2272,7 +2276,7 @@ int main() {
         "Tony Dip",
         "Leslie K Skidmore II",
     };
-    constexpr std::size_t kCount = 53;
+    constexpr std::size_t kCount = 54;
     std::string path;
     if (const char* env = std::getenv("LUNDUKE_SUPPORTERS_TXT")) path = env;
     if (path.empty()) {
@@ -2332,15 +2336,19 @@ int main() {
     CHECK(entries[entries.size() - 3] == "Chuck&Rose");
     CHECK(entries[entries.size() - 2] == "Tony Dip");
     CHECK(entries.back() == "Leslie K Skidmore II");
-    CHECK(entries[7] == "Jesse Buschhaus");
-    CHECK(entries[8] == "Bob Lorna");
-    CHECK(entries[9] == "Barble Bapkins");
-    CHECK(entries[10] == "AtrusBatleth");
+    CHECK(entries[5] == "Mike Beasley");
+    CHECK(entries[6] == "Christian Inci");
+    CHECK(entries[7] == "Jack Beckman");
+    CHECK(entries[8] == "Jesse Buschhaus");
+    CHECK(entries[9] == "Bob Lorna");
+    CHECK(entries[10] == "Barble Bapkins");
+    CHECK(entries[11] == "AtrusBatleth");
     CHECK(entries == expected);
     CHECK(builtin_supporter_entries() == expected);
     CHECK(join_supporter_entries(builtin_supporter_entries()) ==
           "\"Fuzzy\", Jon Darrow, Steve Rockefeller, Steven P., Chris Hammond, "
-          "Mike Beasley, Jack Beckman, Jesse Buschhaus, Bob Lorna, Barble Bapkins, "
+          "Mike Beasley, Christian Inci, Jack Beckman, Jesse Buschhaus, Bob Lorna, "
+          "Barble Bapkins, "
           "AtrusBatleth, "
           "pondo_hound, Bobby Hollingsworth, Otto R. Doll, RussWill, xhighj, R3, "
           "naterthegreater, Neil Stevens, Fischer, cowprint, "
