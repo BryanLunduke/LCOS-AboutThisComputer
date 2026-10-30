@@ -1647,6 +1647,7 @@ std::vector<std::string> builtin_supporter_entries() {
       "Greg Saltis",
       "Chuck&Rose",
       "Tony Dip",
+      "Leslie K Skidmore II",
   };
 }
 
