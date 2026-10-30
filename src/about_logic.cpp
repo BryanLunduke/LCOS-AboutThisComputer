@@ -1638,6 +1638,15 @@ std::vector<std::string> builtin_supporter_entries() {
       "cckaiser",
       "Erik Blaire",
       "The Jake",
+      "Ray Trautman",
+      "Logan R.",
+      "Spencer Siemer",
+      "Randall McPherson",
+      "Phil Allen",
+      "Doug Devine",
+      "Greg Saltis",
+      "Chuck&Rose",
+      "Tony Dip",
   };
 }
 
