@@ -1653,6 +1653,9 @@ std::vector<std::string> builtin_supporter_entries() {
       "Friedrich H. Boettger",
       "Peter K Evans",
       "Eric R Monson",
+      "b1tpunk",
+      "K. Gibson",
+      "David Hover",
   };
 }
 
