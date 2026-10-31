@@ -728,7 +728,7 @@ void test_window_layout() {
   // Chuck&Rose (plain text, so the & shows as-is), Tony Dip, Leslie K
   // Skidmore II, Oddbrother, Friedrich H. Boettger, Peter K Evans, Eric R
   // Monson, b1tpunk, K. Gibson, David Hover, RWDraper, Jason T, Shelby
-  // Roth.
+  // Roth, wlp3.
   // Since Richard Mead the list wraps past six lines, so the names roll up
   // like movie credits through the six-line area 0.9.6-3 had, inside the
   // same 520×360 window.
@@ -809,6 +809,7 @@ void test_window_layout() {
         "RWDraper",
         "Jason T",
         "Shelby Roth",
+        "wlp3",
     };
     std::vector<std::string> shown_entries;
     std::string current;
@@ -822,64 +823,65 @@ void test_window_layout() {
       current.push_back(shown[i]);
     }
     shown_entries.push_back(current);
-    constexpr std::size_t kCount = 64;
+    constexpr std::size_t kCount = 65;
     CHECK(shown_entries.size() == kCount);
     CHECK(shown_entries.size() >= 3);
     CHECK(shown_entries[0] == "\"Fuzzy\"");
     CHECK(shown_entries[1] == "Jon Darrow");
     CHECK(shown_entries[2] == "Steve Rockefeller");
-    CHECK(shown_entries[shown_entries.size() - 52] == "pondo_hound");
-    CHECK(shown_entries[shown_entries.size() - 51] == "Bobby Hollingsworth");
-    CHECK(shown_entries[shown_entries.size() - 50] == "Otto R. Doll");
-    CHECK(shown_entries[shown_entries.size() - 49] == "RussWill");
-    CHECK(shown_entries[shown_entries.size() - 48] == "xhighj");
-    CHECK(shown_entries[shown_entries.size() - 47] == "R3");
-    CHECK(shown_entries[shown_entries.size() - 46] == "naterthegreater");
-    CHECK(shown_entries[shown_entries.size() - 45] == "Neil Stevens");
-    CHECK(shown_entries[shown_entries.size() - 44] == "Fischer");
-    CHECK(shown_entries[shown_entries.size() - 43] == "cowprint");
-    CHECK(shown_entries[shown_entries.size() - 42] == "KekPriestess of Kekistan");
-    CHECK(shown_entries[shown_entries.size() - 41] == "john-okeefe");
-    CHECK(shown_entries[shown_entries.size() - 40] == "Brian Woodruff");
-    CHECK(shown_entries[shown_entries.size() - 39] == "Richard Mead");
-    CHECK(shown_entries[shown_entries.size() - 38] == "Simon the Floppy Disk Whisperer");
-    CHECK(shown_entries[shown_entries.size() - 37] == "Danzo & Delzo");
-    CHECK(shown_entries[shown_entries.size() - 36] == "Lurksmore");
-    CHECK(shown_entries[shown_entries.size() - 35] == "MacroPheliac");
-    CHECK(shown_entries[shown_entries.size() - 34] == "ClarkP57");
-    CHECK(shown_entries[shown_entries.size() - 33] == "deano186");
-    CHECK(shown_entries[shown_entries.size() - 32] == "Johnnydollar2");
-    CHECK(shown_entries[shown_entries.size() - 31] == "CTG");
-    CHECK(shown_entries[shown_entries.size() - 30] == "local_Dave");
-    CHECK(shown_entries[shown_entries.size() - 29] == "Mikkel Meinike");
-    CHECK(shown_entries[shown_entries.size() - 28] == "Darko Kernytsky");
-    CHECK(shown_entries[shown_entries.size() - 27] == "Dstahlback");
-    CHECK(shown_entries[shown_entries.size() - 26] == "Brad Lavis");
-    CHECK(shown_entries[shown_entries.size() - 25] == "William Nichols II");
-    CHECK(shown_entries[shown_entries.size() - 24] == "Juan M/Oldplay");
-    CHECK(shown_entries[shown_entries.size() - 23] == "cckaiser");
-    CHECK(shown_entries[shown_entries.size() - 22] == "Erik Blaire");
-    CHECK(shown_entries[shown_entries.size() - 21] == "The Jake");
-    CHECK(shown_entries[shown_entries.size() - 20] == "Ray Trautman");
-    CHECK(shown_entries[shown_entries.size() - 19] == "Logan R.");
-    CHECK(shown_entries[shown_entries.size() - 18] == "Spencer Siemer");
-    CHECK(shown_entries[shown_entries.size() - 17] == "Randall McPherson");
-    CHECK(shown_entries[shown_entries.size() - 16] == "Phil Allen");
-    CHECK(shown_entries[shown_entries.size() - 15] == "Doug Devine");
-    CHECK(shown_entries[shown_entries.size() - 14] == "Greg Saltis");
-    CHECK(shown_entries[shown_entries.size() - 13] == "Chuck&Rose");
-    CHECK(shown_entries[shown_entries.size() - 12] == "Tony Dip");
-    CHECK(shown_entries[shown_entries.size() - 11] == "Leslie K Skidmore II");
-    CHECK(shown_entries[shown_entries.size() - 10] == "Oddbrother");
-    CHECK(shown_entries[shown_entries.size() - 9] == "Friedrich H. Boettger");
-    CHECK(shown_entries[shown_entries.size() - 8] == "Peter K Evans");
-    CHECK(shown_entries[shown_entries.size() - 7] == "Eric R Monson");
-    CHECK(shown_entries[shown_entries.size() - 6] == "b1tpunk");
-    CHECK(shown_entries[shown_entries.size() - 5] == "K. Gibson");
-    CHECK(shown_entries[shown_entries.size() - 4] == "David Hover");
-    CHECK(shown_entries[shown_entries.size() - 3] == "RWDraper");
-    CHECK(shown_entries[shown_entries.size() - 2] == "Jason T");
-    CHECK(shown_entries.back() == "Shelby Roth");
+    CHECK(shown_entries[shown_entries.size() - 53] == "pondo_hound");
+    CHECK(shown_entries[shown_entries.size() - 52] == "Bobby Hollingsworth");
+    CHECK(shown_entries[shown_entries.size() - 51] == "Otto R. Doll");
+    CHECK(shown_entries[shown_entries.size() - 50] == "RussWill");
+    CHECK(shown_entries[shown_entries.size() - 49] == "xhighj");
+    CHECK(shown_entries[shown_entries.size() - 48] == "R3");
+    CHECK(shown_entries[shown_entries.size() - 47] == "naterthegreater");
+    CHECK(shown_entries[shown_entries.size() - 46] == "Neil Stevens");
+    CHECK(shown_entries[shown_entries.size() - 45] == "Fischer");
+    CHECK(shown_entries[shown_entries.size() - 44] == "cowprint");
+    CHECK(shown_entries[shown_entries.size() - 43] == "KekPriestess of Kekistan");
+    CHECK(shown_entries[shown_entries.size() - 42] == "john-okeefe");
+    CHECK(shown_entries[shown_entries.size() - 41] == "Brian Woodruff");
+    CHECK(shown_entries[shown_entries.size() - 40] == "Richard Mead");
+    CHECK(shown_entries[shown_entries.size() - 39] == "Simon the Floppy Disk Whisperer");
+    CHECK(shown_entries[shown_entries.size() - 38] == "Danzo & Delzo");
+    CHECK(shown_entries[shown_entries.size() - 37] == "Lurksmore");
+    CHECK(shown_entries[shown_entries.size() - 36] == "MacroPheliac");
+    CHECK(shown_entries[shown_entries.size() - 35] == "ClarkP57");
+    CHECK(shown_entries[shown_entries.size() - 34] == "deano186");
+    CHECK(shown_entries[shown_entries.size() - 33] == "Johnnydollar2");
+    CHECK(shown_entries[shown_entries.size() - 32] == "CTG");
+    CHECK(shown_entries[shown_entries.size() - 31] == "local_Dave");
+    CHECK(shown_entries[shown_entries.size() - 30] == "Mikkel Meinike");
+    CHECK(shown_entries[shown_entries.size() - 29] == "Darko Kernytsky");
+    CHECK(shown_entries[shown_entries.size() - 28] == "Dstahlback");
+    CHECK(shown_entries[shown_entries.size() - 27] == "Brad Lavis");
+    CHECK(shown_entries[shown_entries.size() - 26] == "William Nichols II");
+    CHECK(shown_entries[shown_entries.size() - 25] == "Juan M/Oldplay");
+    CHECK(shown_entries[shown_entries.size() - 24] == "cckaiser");
+    CHECK(shown_entries[shown_entries.size() - 23] == "Erik Blaire");
+    CHECK(shown_entries[shown_entries.size() - 22] == "The Jake");
+    CHECK(shown_entries[shown_entries.size() - 21] == "Ray Trautman");
+    CHECK(shown_entries[shown_entries.size() - 20] == "Logan R.");
+    CHECK(shown_entries[shown_entries.size() - 19] == "Spencer Siemer");
+    CHECK(shown_entries[shown_entries.size() - 18] == "Randall McPherson");
+    CHECK(shown_entries[shown_entries.size() - 17] == "Phil Allen");
+    CHECK(shown_entries[shown_entries.size() - 16] == "Doug Devine");
+    CHECK(shown_entries[shown_entries.size() - 15] == "Greg Saltis");
+    CHECK(shown_entries[shown_entries.size() - 14] == "Chuck&Rose");
+    CHECK(shown_entries[shown_entries.size() - 13] == "Tony Dip");
+    CHECK(shown_entries[shown_entries.size() - 12] == "Leslie K Skidmore II");
+    CHECK(shown_entries[shown_entries.size() - 11] == "Oddbrother");
+    CHECK(shown_entries[shown_entries.size() - 10] == "Friedrich H. Boettger");
+    CHECK(shown_entries[shown_entries.size() - 9] == "Peter K Evans");
+    CHECK(shown_entries[shown_entries.size() - 8] == "Eric R Monson");
+    CHECK(shown_entries[shown_entries.size() - 7] == "b1tpunk");
+    CHECK(shown_entries[shown_entries.size() - 6] == "K. Gibson");
+    CHECK(shown_entries[shown_entries.size() - 5] == "David Hover");
+    CHECK(shown_entries[shown_entries.size() - 4] == "RWDraper");
+    CHECK(shown_entries[shown_entries.size() - 3] == "Jason T");
+    CHECK(shown_entries[shown_entries.size() - 2] == "Shelby Roth");
+    CHECK(shown_entries.back() == "wlp3");
     CHECK(shown_entries[5] == "Mike Beasley");
     CHECK(shown_entries[6] == "Christian Inci");
     CHECK(shown_entries[7] == "Jack Beckman");
@@ -903,7 +905,8 @@ void test_window_layout() {
           "Ray Trautman, Logan R., Spencer Siemer, Randall McPherson, Phil Allen, "
           "Doug Devine, Greg Saltis, Chuck&Rose, Tony Dip, Leslie K Skidmore II, "
           "Oddbrother, Friedrich H. Boettger, Peter K Evans, Eric R Monson, "
-          "b1tpunk, K. Gibson, David Hover, RWDraper, Jason T, Shelby Roth");
+          "b1tpunk, K. Gibson, David Hover, RWDraper, Jason T, Shelby Roth, "
+          "wlp3");
 
     const int content_h = names->wrapped_content_height();
     const int view_h = names->get_allocated_height();
