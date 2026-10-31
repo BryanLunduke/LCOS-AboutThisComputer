@@ -1662,6 +1662,7 @@ std::vector<std::string> builtin_supporter_entries() {
       "wlp3",
       "Alexander Akilov",
       "Shaunn Ersch",
+      "Roger Austin",
   };
 }
 

@@ -2222,7 +2222,8 @@ int main() {
   // Peter K Evans; then b1tpunk, K. Gibson and David Hover follow Eric R
   // Monson; then RWDraper, Jason T and Shelby Roth follow David Hover;
   // then wlp3 follows Shelby Roth; then Alexander Akilov follows wlp3;
-  // then Shaunn Ersch follows Alexander Akilov (67 entries).
+  // then Shaunn Ersch follows Alexander Akilov; then Roger Austin follows
+  // Shaunn Ersch (68 entries).
   // The file and the built-in fallback stay the same list.
   {
     const std::vector<std::string> expected = {
@@ -2293,8 +2294,9 @@ int main() {
         "wlp3",
         "Alexander Akilov",
         "Shaunn Ersch",
+        "Roger Austin",
     };
-    constexpr std::size_t kCount = 67;
+    constexpr std::size_t kCount = 68;
     std::string path;
     if (const char* env = std::getenv("LUNDUKE_SUPPORTERS_TXT")) path = env;
     if (path.empty()) {
@@ -2312,61 +2314,62 @@ int main() {
     CHECK(entries[0] == "\"Fuzzy\"");
     CHECK(entries[1] == "Jon Darrow");
     CHECK(entries[2] == "Steve Rockefeller");
-    CHECK(entries[entries.size() - 55] == "pondo_hound");
-    CHECK(entries[entries.size() - 54] == "Bobby Hollingsworth");
-    CHECK(entries[entries.size() - 53] == "Otto R. Doll");
-    CHECK(entries[entries.size() - 52] == "RussWill");
-    CHECK(entries[entries.size() - 51] == "xhighj");
-    CHECK(entries[entries.size() - 50] == "R3");
-    CHECK(entries[entries.size() - 49] == "naterthegreater");
-    CHECK(entries[entries.size() - 48] == "Neil Stevens");
-    CHECK(entries[entries.size() - 47] == "Fischer");
-    CHECK(entries[entries.size() - 46] == "cowprint");
-    CHECK(entries[entries.size() - 45] == "KekPriestess of Kekistan");
-    CHECK(entries[entries.size() - 44] == "john-okeefe");
-    CHECK(entries[entries.size() - 43] == "Brian Woodruff");
-    CHECK(entries[entries.size() - 42] == "Richard Mead");
-    CHECK(entries[entries.size() - 41] == "Simon the Floppy Disk Whisperer");
-    CHECK(entries[entries.size() - 40] == "Danzo & Delzo");
-    CHECK(entries[entries.size() - 39] == "Lurksmore");
-    CHECK(entries[entries.size() - 38] == "MacroPheliac");
-    CHECK(entries[entries.size() - 37] == "ClarkP57");
-    CHECK(entries[entries.size() - 36] == "deano186");
-    CHECK(entries[entries.size() - 35] == "Johnnydollar2");
-    CHECK(entries[entries.size() - 34] == "CTG");
-    CHECK(entries[entries.size() - 33] == "local_Dave");
-    CHECK(entries[entries.size() - 32] == "Mikkel Meinike");
-    CHECK(entries[entries.size() - 31] == "Darko Kernytsky");
-    CHECK(entries[entries.size() - 30] == "Dstahlback");
-    CHECK(entries[entries.size() - 29] == "Brad Lavis");
-    CHECK(entries[entries.size() - 28] == "William Nichols II");
-    CHECK(entries[entries.size() - 27] == "Juan M/Oldplay");
-    CHECK(entries[entries.size() - 26] == "cckaiser");
-    CHECK(entries[entries.size() - 25] == "Erik Blaire");
-    CHECK(entries[entries.size() - 24] == "The Jake");
-    CHECK(entries[entries.size() - 23] == "Ray Trautman");
-    CHECK(entries[entries.size() - 22] == "Logan R.");
-    CHECK(entries[entries.size() - 21] == "Spencer Siemer");
-    CHECK(entries[entries.size() - 20] == "Randall McPherson");
-    CHECK(entries[entries.size() - 19] == "Phil Allen");
-    CHECK(entries[entries.size() - 18] == "Doug Devine");
-    CHECK(entries[entries.size() - 17] == "Greg Saltis");
-    CHECK(entries[entries.size() - 16] == "Chuck&Rose");
-    CHECK(entries[entries.size() - 15] == "Tony Dip");
-    CHECK(entries[entries.size() - 14] == "Leslie K Skidmore II");
-    CHECK(entries[entries.size() - 13] == "Oddbrother");
-    CHECK(entries[entries.size() - 12] == "Friedrich H. Boettger");
-    CHECK(entries[entries.size() - 11] == "Peter K Evans");
-    CHECK(entries[entries.size() - 10] == "Eric R Monson");
-    CHECK(entries[entries.size() - 9] == "b1tpunk");
-    CHECK(entries[entries.size() - 8] == "K. Gibson");
-    CHECK(entries[entries.size() - 7] == "David Hover");
-    CHECK(entries[entries.size() - 6] == "RWDraper");
-    CHECK(entries[entries.size() - 5] == "Jason T");
-    CHECK(entries[entries.size() - 4] == "Shelby Roth");
-    CHECK(entries[entries.size() - 3] == "wlp3");
-    CHECK(entries[entries.size() - 2] == "Alexander Akilov");
-    CHECK(entries.back() == "Shaunn Ersch");
+    CHECK(entries[entries.size() - 56] == "pondo_hound");
+    CHECK(entries[entries.size() - 55] == "Bobby Hollingsworth");
+    CHECK(entries[entries.size() - 54] == "Otto R. Doll");
+    CHECK(entries[entries.size() - 53] == "RussWill");
+    CHECK(entries[entries.size() - 52] == "xhighj");
+    CHECK(entries[entries.size() - 51] == "R3");
+    CHECK(entries[entries.size() - 50] == "naterthegreater");
+    CHECK(entries[entries.size() - 49] == "Neil Stevens");
+    CHECK(entries[entries.size() - 48] == "Fischer");
+    CHECK(entries[entries.size() - 47] == "cowprint");
+    CHECK(entries[entries.size() - 46] == "KekPriestess of Kekistan");
+    CHECK(entries[entries.size() - 45] == "john-okeefe");
+    CHECK(entries[entries.size() - 44] == "Brian Woodruff");
+    CHECK(entries[entries.size() - 43] == "Richard Mead");
+    CHECK(entries[entries.size() - 42] == "Simon the Floppy Disk Whisperer");
+    CHECK(entries[entries.size() - 41] == "Danzo & Delzo");
+    CHECK(entries[entries.size() - 40] == "Lurksmore");
+    CHECK(entries[entries.size() - 39] == "MacroPheliac");
+    CHECK(entries[entries.size() - 38] == "ClarkP57");
+    CHECK(entries[entries.size() - 37] == "deano186");
+    CHECK(entries[entries.size() - 36] == "Johnnydollar2");
+    CHECK(entries[entries.size() - 35] == "CTG");
+    CHECK(entries[entries.size() - 34] == "local_Dave");
+    CHECK(entries[entries.size() - 33] == "Mikkel Meinike");
+    CHECK(entries[entries.size() - 32] == "Darko Kernytsky");
+    CHECK(entries[entries.size() - 31] == "Dstahlback");
+    CHECK(entries[entries.size() - 30] == "Brad Lavis");
+    CHECK(entries[entries.size() - 29] == "William Nichols II");
+    CHECK(entries[entries.size() - 28] == "Juan M/Oldplay");
+    CHECK(entries[entries.size() - 27] == "cckaiser");
+    CHECK(entries[entries.size() - 26] == "Erik Blaire");
+    CHECK(entries[entries.size() - 25] == "The Jake");
+    CHECK(entries[entries.size() - 24] == "Ray Trautman");
+    CHECK(entries[entries.size() - 23] == "Logan R.");
+    CHECK(entries[entries.size() - 22] == "Spencer Siemer");
+    CHECK(entries[entries.size() - 21] == "Randall McPherson");
+    CHECK(entries[entries.size() - 20] == "Phil Allen");
+    CHECK(entries[entries.size() - 19] == "Doug Devine");
+    CHECK(entries[entries.size() - 18] == "Greg Saltis");
+    CHECK(entries[entries.size() - 17] == "Chuck&Rose");
+    CHECK(entries[entries.size() - 16] == "Tony Dip");
+    CHECK(entries[entries.size() - 15] == "Leslie K Skidmore II");
+    CHECK(entries[entries.size() - 14] == "Oddbrother");
+    CHECK(entries[entries.size() - 13] == "Friedrich H. Boettger");
+    CHECK(entries[entries.size() - 12] == "Peter K Evans");
+    CHECK(entries[entries.size() - 11] == "Eric R Monson");
+    CHECK(entries[entries.size() - 10] == "b1tpunk");
+    CHECK(entries[entries.size() - 9] == "K. Gibson");
+    CHECK(entries[entries.size() - 8] == "David Hover");
+    CHECK(entries[entries.size() - 7] == "RWDraper");
+    CHECK(entries[entries.size() - 6] == "Jason T");
+    CHECK(entries[entries.size() - 5] == "Shelby Roth");
+    CHECK(entries[entries.size() - 4] == "wlp3");
+    CHECK(entries[entries.size() - 3] == "Alexander Akilov");
+    CHECK(entries[entries.size() - 2] == "Shaunn Ersch");
+    CHECK(entries.back() == "Roger Austin");
     CHECK(entries[5] == "Mike Beasley");
     CHECK(entries[6] == "Christian Inci");
     CHECK(entries[7] == "Jack Beckman");
@@ -2392,7 +2395,7 @@ int main() {
           "Doug Devine, Greg Saltis, Chuck&Rose, Tony Dip, Leslie K Skidmore II, "
           "Oddbrother, Friedrich H. Boettger, Peter K Evans, Eric R Monson, "
           "b1tpunk, K. Gibson, David Hover, RWDraper, Jason T, Shelby Roth, "
-          "wlp3, Alexander Akilov, Shaunn Ersch");
+          "wlp3, Alexander Akilov, Shaunn Ersch, Roger Austin");
   }
 
   // Round 7: desktop Name, prettified class, row-tree rollup, refresh pace.
