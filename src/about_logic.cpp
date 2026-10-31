@@ -1649,6 +1649,9 @@ std::vector<std::string> builtin_supporter_entries() {
       "Chuck&Rose",
       "Tony Dip",
       "Leslie K Skidmore II",
+      "Oddbrother",
+      "Friedrich H. Boettger",
+      "Peter K Evans",
   };
 }
 
