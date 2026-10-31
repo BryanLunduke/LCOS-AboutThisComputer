@@ -1656,6 +1656,9 @@ std::vector<std::string> builtin_supporter_entries() {
       "b1tpunk",
       "K. Gibson",
       "David Hover",
+      "RWDraper",
+      "Jason T",
+      "Shelby Roth",
   };
 }
 
