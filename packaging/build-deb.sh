@@ -1,10 +1,10 @@
 #!/bin/sh
-# Build lunduke-about_1.0.0-2_amd64.deb into packaging/debs/ (repo-local).
+# Build lunduke-about_1.0.0-3_amd64.deb into packaging/debs/ (repo-local).
 # Does NOT seed lcos-live-07 (Phil seeds by hand into packages.chroot).
 set -eu
 
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
-VERSION="1.0.0-2"
+VERSION="1.0.0-3"
 PKGNAME="lunduke-about_${VERSION}_amd64"
 BUILD="$ROOT/build-deb"
 DEST="$ROOT/packaging/src/lunduke-about"

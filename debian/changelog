@@ -1,3 +1,13 @@
+lunduke-about (1.0.0-3) unstable; urgency=medium
+
+  * Supporters list: insert Christian Inci as the 7th name (after Mike
+    Beasley) (#49), append Oddbrother, Friedrich H. Boettger and Peter K
+    Evans after Leslie K Skidmore II (#50), then Eric R Monson after Peter
+    K Evans (#51) (data/supporters.txt and the built-in fallback; 58
+    names).
+
+ -- Ted <ted@brushpad.local>  Sat, 31 Oct 2026 03:29:19 +0000
+
 lunduke-about (1.0.0-2) unstable; urgency=medium
 
   * Supporters list: append Dstahlback, Brad Lavis, William Nichols II,
