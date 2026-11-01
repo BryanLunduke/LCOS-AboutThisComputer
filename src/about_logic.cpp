@@ -1661,6 +1661,9 @@ std::vector<std::string> builtin_supporter_entries() {
       "Shelby Roth",
       "wlp3",
       "Alexander Akilov",
+      "Shaunn Ersch",
+      "Roger Austin",
+      "Anton Schenker",
   };
 }
 
