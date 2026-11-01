@@ -1,3 +1,14 @@
+lunduke-about (1.0.0-4) unstable; urgency=medium
+
+  * Supporters list: append b1tpunk, K. Gibson and David Hover (#53),
+    RWDraper, Jason T and Shelby Roth (#54), wlp3 (#55), Alexander Akilov
+    (#56), Shaunn Ersch, Roger Austin and Anton Schenker (#57) after Eric R
+    Monson, and insert SkibidiOhio67 as the 37th name (after Mikkel
+    Meinike) (#58) (data/supporters.txt and the built-in fallback; 70
+    names).
+
+ -- Ted <ted@brushpad.local>  Sun, 01 Nov 2026 03:11:29 +0000
+
 lunduke-about (1.0.0-3) unstable; urgency=medium
 
   * Supporters list: insert Christian Inci as the 7th name (after Mike
