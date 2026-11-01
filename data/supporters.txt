@@ -71,3 +71,5 @@ Alexander Akilov
 Shaunn Ersch
 Roger Austin
 Anton Schenker
+GuessEye
+WhiteWave

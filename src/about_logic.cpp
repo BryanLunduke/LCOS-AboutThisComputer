@@ -1665,6 +1665,8 @@ std::vector<std::string> builtin_supporter_entries() {
       "Shaunn Ersch",
       "Roger Austin",
       "Anton Schenker",
+      "GuessEye",
+      "WhiteWave",
   };
 }
 
