@@ -1631,6 +1631,7 @@ std::vector<std::string> builtin_supporter_entries() {
       "CTG",
       "local_Dave",
       "Mikkel Meinike",
+      "SkibidiOhio67",
       "Darko Kernytsky",
       "Dstahlback",
       "Brad Lavis",

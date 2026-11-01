@@ -721,8 +721,9 @@ void test_window_layout() {
   // Kekistan, john-okeefe, Brian Woodruff, Richard Mead, Simon the Floppy
   // Disk Whisperer, Danzo & Delzo (plain text, so the & shows as-is),
   // Lurksmore, MacroPheliac, ClarkP57, deano186, Johnnydollar2, CTG,
-  // local_Dave, Mikkel Meinike, Darko Kernytsky, Dstahlback, Brad Lavis,
-  // William Nichols II, Juan M/Oldplay (plain text, so the / shows as-is),
+  // local_Dave, Mikkel Meinike, SkibidiOhio67 (37th), Darko Kernytsky,
+  // Dstahlback, Brad Lavis, William Nichols II, Juan M/Oldplay (plain
+  // text, so the / shows as-is),
   // cckaiser, Erik Blaire, The Jake, Ray Trautman, Logan R., Spencer
   // Siemer, Randall McPherson, Phil Allen, Doug Devine, Greg Saltis,
   // Chuck&Rose (plain text, so the & shows as-is), Tony Dip, Leslie K
@@ -782,6 +783,7 @@ void test_window_layout() {
         "CTG",
         "local_Dave",
         "Mikkel Meinike",
+        "SkibidiOhio67",
         "Darko Kernytsky",
         "Dstahlback",
         "Brad Lavis",
@@ -828,36 +830,37 @@ void test_window_layout() {
       current.push_back(shown[i]);
     }
     shown_entries.push_back(current);
-    constexpr std::size_t kCount = 69;
+    constexpr std::size_t kCount = 70;
     CHECK(shown_entries.size() == kCount);
     CHECK(shown_entries.size() >= 3);
     CHECK(shown_entries[0] == "\"Fuzzy\"");
     CHECK(shown_entries[1] == "Jon Darrow");
     CHECK(shown_entries[2] == "Steve Rockefeller");
-    CHECK(shown_entries[shown_entries.size() - 57] == "pondo_hound");
-    CHECK(shown_entries[shown_entries.size() - 56] == "Bobby Hollingsworth");
-    CHECK(shown_entries[shown_entries.size() - 55] == "Otto R. Doll");
-    CHECK(shown_entries[shown_entries.size() - 54] == "RussWill");
-    CHECK(shown_entries[shown_entries.size() - 53] == "xhighj");
-    CHECK(shown_entries[shown_entries.size() - 52] == "R3");
-    CHECK(shown_entries[shown_entries.size() - 51] == "naterthegreater");
-    CHECK(shown_entries[shown_entries.size() - 50] == "Neil Stevens");
-    CHECK(shown_entries[shown_entries.size() - 49] == "Fischer");
-    CHECK(shown_entries[shown_entries.size() - 48] == "cowprint");
-    CHECK(shown_entries[shown_entries.size() - 47] == "KekPriestess of Kekistan");
-    CHECK(shown_entries[shown_entries.size() - 46] == "john-okeefe");
-    CHECK(shown_entries[shown_entries.size() - 45] == "Brian Woodruff");
-    CHECK(shown_entries[shown_entries.size() - 44] == "Richard Mead");
-    CHECK(shown_entries[shown_entries.size() - 43] == "Simon the Floppy Disk Whisperer");
-    CHECK(shown_entries[shown_entries.size() - 42] == "Danzo & Delzo");
-    CHECK(shown_entries[shown_entries.size() - 41] == "Lurksmore");
-    CHECK(shown_entries[shown_entries.size() - 40] == "MacroPheliac");
-    CHECK(shown_entries[shown_entries.size() - 39] == "ClarkP57");
-    CHECK(shown_entries[shown_entries.size() - 38] == "deano186");
-    CHECK(shown_entries[shown_entries.size() - 37] == "Johnnydollar2");
-    CHECK(shown_entries[shown_entries.size() - 36] == "CTG");
-    CHECK(shown_entries[shown_entries.size() - 35] == "local_Dave");
-    CHECK(shown_entries[shown_entries.size() - 34] == "Mikkel Meinike");
+    CHECK(shown_entries[shown_entries.size() - 58] == "pondo_hound");
+    CHECK(shown_entries[shown_entries.size() - 57] == "Bobby Hollingsworth");
+    CHECK(shown_entries[shown_entries.size() - 56] == "Otto R. Doll");
+    CHECK(shown_entries[shown_entries.size() - 55] == "RussWill");
+    CHECK(shown_entries[shown_entries.size() - 54] == "xhighj");
+    CHECK(shown_entries[shown_entries.size() - 53] == "R3");
+    CHECK(shown_entries[shown_entries.size() - 52] == "naterthegreater");
+    CHECK(shown_entries[shown_entries.size() - 51] == "Neil Stevens");
+    CHECK(shown_entries[shown_entries.size() - 50] == "Fischer");
+    CHECK(shown_entries[shown_entries.size() - 49] == "cowprint");
+    CHECK(shown_entries[shown_entries.size() - 48] == "KekPriestess of Kekistan");
+    CHECK(shown_entries[shown_entries.size() - 47] == "john-okeefe");
+    CHECK(shown_entries[shown_entries.size() - 46] == "Brian Woodruff");
+    CHECK(shown_entries[shown_entries.size() - 45] == "Richard Mead");
+    CHECK(shown_entries[shown_entries.size() - 44] == "Simon the Floppy Disk Whisperer");
+    CHECK(shown_entries[shown_entries.size() - 43] == "Danzo & Delzo");
+    CHECK(shown_entries[shown_entries.size() - 42] == "Lurksmore");
+    CHECK(shown_entries[shown_entries.size() - 41] == "MacroPheliac");
+    CHECK(shown_entries[shown_entries.size() - 40] == "ClarkP57");
+    CHECK(shown_entries[shown_entries.size() - 39] == "deano186");
+    CHECK(shown_entries[shown_entries.size() - 38] == "Johnnydollar2");
+    CHECK(shown_entries[shown_entries.size() - 37] == "CTG");
+    CHECK(shown_entries[shown_entries.size() - 36] == "local_Dave");
+    CHECK(shown_entries[shown_entries.size() - 35] == "Mikkel Meinike");
+    CHECK(shown_entries[shown_entries.size() - 34] == "SkibidiOhio67");
     CHECK(shown_entries[shown_entries.size() - 33] == "Darko Kernytsky");
     CHECK(shown_entries[shown_entries.size() - 32] == "Dstahlback");
     CHECK(shown_entries[shown_entries.size() - 31] == "Brad Lavis");
@@ -898,6 +901,9 @@ void test_window_layout() {
     CHECK(shown_entries[9] == "Bob Lorna");
     CHECK(shown_entries[10] == "Barble Bapkins");
     CHECK(shown_entries[11] == "AtrusBatleth");
+    CHECK(shown_entries[35] == "Mikkel Meinike");
+    CHECK(shown_entries[36] == "SkibidiOhio67");
+    CHECK(shown_entries[37] == "Darko Kernytsky");
     CHECK(shown_entries == expected);
     CHECK(shown ==
           "\"Fuzzy\", Jon Darrow, Steve Rockefeller, Steven P., Chris Hammond, "
@@ -908,7 +914,8 @@ void test_window_layout() {
           "naterthegreater, Neil Stevens, Fischer, cowprint, "
           "KekPriestess of Kekistan, john-okeefe, Brian Woodruff, Richard Mead, "
           "Simon the Floppy Disk Whisperer, Danzo & Delzo, Lurksmore, MacroPheliac, ClarkP57, "
-          "deano186, Johnnydollar2, CTG, local_Dave, Mikkel Meinike, Darko Kernytsky, "
+          "deano186, Johnnydollar2, CTG, local_Dave, Mikkel Meinike, SkibidiOhio67, "
+          "Darko Kernytsky, "
           "Dstahlback, Brad Lavis, William Nichols II, Juan M/Oldplay, cckaiser, "
           "Erik Blaire, The Jake, "
           "Ray Trautman, Logan R., Spencer Siemer, Randall McPherson, Phil Allen, "
