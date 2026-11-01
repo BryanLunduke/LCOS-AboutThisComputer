@@ -1,3 +1,10 @@
+lunduke-about (1.0.0-5) unstable; urgency=medium
+
+  * Supporters list: append GuessEye and WhiteWave after Anton Schenker
+    (#60) (data/supporters.txt and the built-in fallback; 72 names).
+
+ -- Ted <ted@brushpad.local>  Sun, 01 Nov 2026 04:06:43 +0000
+
 lunduke-about (1.0.0-4) unstable; urgency=medium
 
   * Supporters list: append b1tpunk, K. Gibson and David Hover (#53),
