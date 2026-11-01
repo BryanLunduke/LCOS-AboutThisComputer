@@ -2223,7 +2223,9 @@ int main() {
   // Monson; then RWDraper, Jason T and Shelby Roth follow David Hover;
   // then wlp3 follows Shelby Roth; then Alexander Akilov follows wlp3;
   // then Shaunn Ersch follows Alexander Akilov; then Roger Austin follows
-  // Shaunn Ersch; then Anton Schenker follows Roger Austin (69 entries).
+  // Shaunn Ersch; then Anton Schenker follows Roger Austin; then the editor
+  // inserts SkibidiOhio67 at index 36 (37th, between Mikkel Meinike and
+  // Darko Kernytsky), so Darko Kernytsky moves to index 37 (70 entries).
   // The file and the built-in fallback stay the same list.
   {
     const std::vector<std::string> expected = {
@@ -2263,6 +2265,7 @@ int main() {
         "CTG",
         "local_Dave",
         "Mikkel Meinike",
+        "SkibidiOhio67",
         "Darko Kernytsky",
         "Dstahlback",
         "Brad Lavis",
@@ -2297,7 +2300,7 @@ int main() {
         "Roger Austin",
         "Anton Schenker",
     };
-    constexpr std::size_t kCount = 69;
+    constexpr std::size_t kCount = 70;
     std::string path;
     if (const char* env = std::getenv("LUNDUKE_SUPPORTERS_TXT")) path = env;
     if (path.empty()) {
@@ -2315,30 +2318,31 @@ int main() {
     CHECK(entries[0] == "\"Fuzzy\"");
     CHECK(entries[1] == "Jon Darrow");
     CHECK(entries[2] == "Steve Rockefeller");
-    CHECK(entries[entries.size() - 57] == "pondo_hound");
-    CHECK(entries[entries.size() - 56] == "Bobby Hollingsworth");
-    CHECK(entries[entries.size() - 55] == "Otto R. Doll");
-    CHECK(entries[entries.size() - 54] == "RussWill");
-    CHECK(entries[entries.size() - 53] == "xhighj");
-    CHECK(entries[entries.size() - 52] == "R3");
-    CHECK(entries[entries.size() - 51] == "naterthegreater");
-    CHECK(entries[entries.size() - 50] == "Neil Stevens");
-    CHECK(entries[entries.size() - 49] == "Fischer");
-    CHECK(entries[entries.size() - 48] == "cowprint");
-    CHECK(entries[entries.size() - 47] == "KekPriestess of Kekistan");
-    CHECK(entries[entries.size() - 46] == "john-okeefe");
-    CHECK(entries[entries.size() - 45] == "Brian Woodruff");
-    CHECK(entries[entries.size() - 44] == "Richard Mead");
-    CHECK(entries[entries.size() - 43] == "Simon the Floppy Disk Whisperer");
-    CHECK(entries[entries.size() - 42] == "Danzo & Delzo");
-    CHECK(entries[entries.size() - 41] == "Lurksmore");
-    CHECK(entries[entries.size() - 40] == "MacroPheliac");
-    CHECK(entries[entries.size() - 39] == "ClarkP57");
-    CHECK(entries[entries.size() - 38] == "deano186");
-    CHECK(entries[entries.size() - 37] == "Johnnydollar2");
-    CHECK(entries[entries.size() - 36] == "CTG");
-    CHECK(entries[entries.size() - 35] == "local_Dave");
-    CHECK(entries[entries.size() - 34] == "Mikkel Meinike");
+    CHECK(entries[entries.size() - 58] == "pondo_hound");
+    CHECK(entries[entries.size() - 57] == "Bobby Hollingsworth");
+    CHECK(entries[entries.size() - 56] == "Otto R. Doll");
+    CHECK(entries[entries.size() - 55] == "RussWill");
+    CHECK(entries[entries.size() - 54] == "xhighj");
+    CHECK(entries[entries.size() - 53] == "R3");
+    CHECK(entries[entries.size() - 52] == "naterthegreater");
+    CHECK(entries[entries.size() - 51] == "Neil Stevens");
+    CHECK(entries[entries.size() - 50] == "Fischer");
+    CHECK(entries[entries.size() - 49] == "cowprint");
+    CHECK(entries[entries.size() - 48] == "KekPriestess of Kekistan");
+    CHECK(entries[entries.size() - 47] == "john-okeefe");
+    CHECK(entries[entries.size() - 46] == "Brian Woodruff");
+    CHECK(entries[entries.size() - 45] == "Richard Mead");
+    CHECK(entries[entries.size() - 44] == "Simon the Floppy Disk Whisperer");
+    CHECK(entries[entries.size() - 43] == "Danzo & Delzo");
+    CHECK(entries[entries.size() - 42] == "Lurksmore");
+    CHECK(entries[entries.size() - 41] == "MacroPheliac");
+    CHECK(entries[entries.size() - 40] == "ClarkP57");
+    CHECK(entries[entries.size() - 39] == "deano186");
+    CHECK(entries[entries.size() - 38] == "Johnnydollar2");
+    CHECK(entries[entries.size() - 37] == "CTG");
+    CHECK(entries[entries.size() - 36] == "local_Dave");
+    CHECK(entries[entries.size() - 35] == "Mikkel Meinike");
+    CHECK(entries[entries.size() - 34] == "SkibidiOhio67");
     CHECK(entries[entries.size() - 33] == "Darko Kernytsky");
     CHECK(entries[entries.size() - 32] == "Dstahlback");
     CHECK(entries[entries.size() - 31] == "Brad Lavis");
@@ -2379,6 +2383,9 @@ int main() {
     CHECK(entries[9] == "Bob Lorna");
     CHECK(entries[10] == "Barble Bapkins");
     CHECK(entries[11] == "AtrusBatleth");
+    CHECK(entries[35] == "Mikkel Meinike");
+    CHECK(entries[36] == "SkibidiOhio67");
+    CHECK(entries[37] == "Darko Kernytsky");
     CHECK(entries == expected);
     CHECK(builtin_supporter_entries() == expected);
     CHECK(join_supporter_entries(builtin_supporter_entries()) ==
@@ -2390,7 +2397,8 @@ int main() {
           "naterthegreater, Neil Stevens, Fischer, cowprint, "
           "KekPriestess of Kekistan, john-okeefe, Brian Woodruff, Richard Mead, "
           "Simon the Floppy Disk Whisperer, Danzo & Delzo, Lurksmore, MacroPheliac, ClarkP57, "
-          "deano186, Johnnydollar2, CTG, local_Dave, Mikkel Meinike, Darko Kernytsky, "
+          "deano186, Johnnydollar2, CTG, local_Dave, Mikkel Meinike, SkibidiOhio67, "
+          "Darko Kernytsky, "
           "Dstahlback, Brad Lavis, William Nichols II, Juan M/Oldplay, cckaiser, "
           "Erik Blaire, The Jake, "
           "Ray Trautman, Logan R., Spencer Siemer, Randall McPherson, Phil Allen, "
