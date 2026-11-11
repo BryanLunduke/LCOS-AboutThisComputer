@@ -2,6 +2,7 @@
 # One entry per non-empty line. Lines starting with # are ignored.
 # The About window joins entries with a comma and a space.
 "Fuzzy"
+Debbie
 Jon Darrow
 Steve Rockefeller
 Steven P.
