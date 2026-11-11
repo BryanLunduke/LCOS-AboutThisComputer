@@ -713,15 +713,16 @@ void test_window_layout() {
     CHECK(outside == 0);
   }
 
-  // Jon Darrow is second and Steve Rockefeller third; Christian Inci is
-  // seventh, between Mike Beasley and Jack Beckman; Barble Bapkins is
-  // eleventh, between Bob Lorna and AtrusBatleth. The list ends
+  // Debbie is second, Jon Darrow third, and Steve Rockefeller fourth;
+  // Christian Inci is eighth, between Mike Beasley and Jack Beckman;
+  // Barble Bapkins is twelfth, between Bob Lorna and AtrusBatleth. The
+  // list ends
   // pondo_hound, Bobby Hollingsworth, Otto R. Doll, RussWill, xhighj, R3,
   // naterthegreater, Neil Stevens, Fischer, cowprint, KekPriestess of
   // Kekistan, john-okeefe, Brian Woodruff, Richard Mead, Simon the Floppy
   // Disk Whisperer, Danzo & Delzo (plain text, so the & shows as-is),
   // Lurksmore, MacroPheliac, ClarkP57, deano186, Johnnydollar2, CTG,
-  // local_Dave, Mikkel Meinike, SkibidiOhio67 (37th), Darko Kernytsky,
+  // local_Dave, Mikkel Meinike, SkibidiOhio67 (38th), Darko Kernytsky,
   // Dstahlback, Brad Lavis, William Nichols II, Juan M/Oldplay (plain
   // text, so the / shows as-is),
   // cckaiser, Erik Blaire, The Jake, Ray Trautman, Logan R., Spencer
@@ -748,6 +749,7 @@ void test_window_layout() {
     const std::string shown(names->text());
     const std::vector<std::string> expected = {
         "\"Fuzzy\"",
+        "Debbie",
         "Jon Darrow",
         "Steve Rockefeller",
         "Steven P.",
@@ -832,12 +834,13 @@ void test_window_layout() {
       current.push_back(shown[i]);
     }
     shown_entries.push_back(current);
-    constexpr std::size_t kCount = 72;
+    constexpr std::size_t kCount = 73;
     CHECK(shown_entries.size() == kCount);
     CHECK(shown_entries.size() >= 3);
     CHECK(shown_entries[0] == "\"Fuzzy\"");
-    CHECK(shown_entries[1] == "Jon Darrow");
-    CHECK(shown_entries[2] == "Steve Rockefeller");
+    CHECK(shown_entries[1] == "Debbie");
+    CHECK(shown_entries[2] == "Jon Darrow");
+    CHECK(shown_entries[3] == "Steve Rockefeller");
     CHECK(shown_entries[shown_entries.size() - 60] == "pondo_hound");
     CHECK(shown_entries[shown_entries.size() - 59] == "Bobby Hollingsworth");
     CHECK(shown_entries[shown_entries.size() - 58] == "Otto R. Doll");
@@ -898,19 +901,19 @@ void test_window_layout() {
     CHECK(shown_entries[shown_entries.size() - 3] == "Anton Schenker");
     CHECK(shown_entries[shown_entries.size() - 2] == "GuessEye");
     CHECK(shown_entries.back() == "WhiteWave");
-    CHECK(shown_entries[5] == "Mike Beasley");
-    CHECK(shown_entries[6] == "Christian Inci");
-    CHECK(shown_entries[7] == "Jack Beckman");
-    CHECK(shown_entries[8] == "Jesse Buschhaus");
-    CHECK(shown_entries[9] == "Bob Lorna");
-    CHECK(shown_entries[10] == "Barble Bapkins");
-    CHECK(shown_entries[11] == "AtrusBatleth");
-    CHECK(shown_entries[35] == "Mikkel Meinike");
-    CHECK(shown_entries[36] == "SkibidiOhio67");
-    CHECK(shown_entries[37] == "Darko Kernytsky");
+    CHECK(shown_entries[6] == "Mike Beasley");
+    CHECK(shown_entries[7] == "Christian Inci");
+    CHECK(shown_entries[8] == "Jack Beckman");
+    CHECK(shown_entries[9] == "Jesse Buschhaus");
+    CHECK(shown_entries[10] == "Bob Lorna");
+    CHECK(shown_entries[11] == "Barble Bapkins");
+    CHECK(shown_entries[12] == "AtrusBatleth");
+    CHECK(shown_entries[36] == "Mikkel Meinike");
+    CHECK(shown_entries[37] == "SkibidiOhio67");
+    CHECK(shown_entries[38] == "Darko Kernytsky");
     CHECK(shown_entries == expected);
     CHECK(shown ==
-          "\"Fuzzy\", Jon Darrow, Steve Rockefeller, Steven P., Chris Hammond, "
+          "\"Fuzzy\", Debbie, Jon Darrow, Steve Rockefeller, Steven P., Chris Hammond, "
           "Mike Beasley, Christian Inci, Jack Beckman, Jesse Buschhaus, Bob Lorna, "
           "Barble Bapkins, "
           "AtrusBatleth, "

@@ -1596,6 +1596,7 @@ std::string join_supporter_entries(const std::vector<std::string>& entries) {
 std::vector<std::string> builtin_supporter_entries() {
   return {
       "\"Fuzzy\"",
+      "Debbie",
       "Jon Darrow",
       "Steve Rockefeller",
       "Steven P.",

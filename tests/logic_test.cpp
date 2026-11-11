@@ -2226,11 +2226,15 @@ int main() {
   // Shaunn Ersch; then Anton Schenker follows Roger Austin; then the editor
   // inserts SkibidiOhio67 at index 36 (37th, between Mikkel Meinike and
   // Darko Kernytsky), so Darko Kernytsky moves to index 37; then GuessEye
-  // and WhiteWave follow Anton Schenker at the end (72 entries).
+  // and WhiteWave follow Anton Schenker at the end (72 entries). Debbie
+  // is then inserted at index 1 (2nd, between "Fuzzy" and Jon Darrow), so
+  // Jon Darrow moves to index 2, Steve Rockefeller to index 3, and every
+  // later absolute index shifts by one (73 entries).
   // The file and the built-in fallback stay the same list.
   {
     const std::vector<std::string> expected = {
         "\"Fuzzy\"",
+        "Debbie",
         "Jon Darrow",
         "Steve Rockefeller",
         "Steven P.",
@@ -2303,7 +2307,7 @@ int main() {
         "GuessEye",
         "WhiteWave",
     };
-    constexpr std::size_t kCount = 72;
+    constexpr std::size_t kCount = 73;
     std::string path;
     if (const char* env = std::getenv("LUNDUKE_SUPPORTERS_TXT")) path = env;
     if (path.empty()) {
@@ -2319,8 +2323,9 @@ int main() {
     CHECK(builtin_supporter_entries().size() == kCount);
     CHECK(entries.size() >= 3);
     CHECK(entries[0] == "\"Fuzzy\"");
-    CHECK(entries[1] == "Jon Darrow");
-    CHECK(entries[2] == "Steve Rockefeller");
+    CHECK(entries[1] == "Debbie");
+    CHECK(entries[2] == "Jon Darrow");
+    CHECK(entries[3] == "Steve Rockefeller");
     CHECK(entries[entries.size() - 60] == "pondo_hound");
     CHECK(entries[entries.size() - 59] == "Bobby Hollingsworth");
     CHECK(entries[entries.size() - 58] == "Otto R. Doll");
@@ -2381,20 +2386,20 @@ int main() {
     CHECK(entries[entries.size() - 3] == "Anton Schenker");
     CHECK(entries[entries.size() - 2] == "GuessEye");
     CHECK(entries.back() == "WhiteWave");
-    CHECK(entries[5] == "Mike Beasley");
-    CHECK(entries[6] == "Christian Inci");
-    CHECK(entries[7] == "Jack Beckman");
-    CHECK(entries[8] == "Jesse Buschhaus");
-    CHECK(entries[9] == "Bob Lorna");
-    CHECK(entries[10] == "Barble Bapkins");
-    CHECK(entries[11] == "AtrusBatleth");
-    CHECK(entries[35] == "Mikkel Meinike");
-    CHECK(entries[36] == "SkibidiOhio67");
-    CHECK(entries[37] == "Darko Kernytsky");
+    CHECK(entries[6] == "Mike Beasley");
+    CHECK(entries[7] == "Christian Inci");
+    CHECK(entries[8] == "Jack Beckman");
+    CHECK(entries[9] == "Jesse Buschhaus");
+    CHECK(entries[10] == "Bob Lorna");
+    CHECK(entries[11] == "Barble Bapkins");
+    CHECK(entries[12] == "AtrusBatleth");
+    CHECK(entries[36] == "Mikkel Meinike");
+    CHECK(entries[37] == "SkibidiOhio67");
+    CHECK(entries[38] == "Darko Kernytsky");
     CHECK(entries == expected);
     CHECK(builtin_supporter_entries() == expected);
     CHECK(join_supporter_entries(builtin_supporter_entries()) ==
-          "\"Fuzzy\", Jon Darrow, Steve Rockefeller, Steven P., Chris Hammond, "
+          "\"Fuzzy\", Debbie, Jon Darrow, Steve Rockefeller, Steven P., Chris Hammond, "
           "Mike Beasley, Christian Inci, Jack Beckman, Jesse Buschhaus, Bob Lorna, "
           "Barble Bapkins, "
           "AtrusBatleth, "
