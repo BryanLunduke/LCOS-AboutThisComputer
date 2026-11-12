@@ -31,6 +31,11 @@
     <category>Monitor</category>
   </categories>
   <releases>
+    <release version="1.1.0" date="2026-11-12">
+      <description>
+        <p>Version for LCOS 1.1.0. Adds Debbie as the second name on the Supporters list (73 names).</p>
+      </description>
+    </release>
     <release version="1.0.1" date="2026-11-02">
       <description>
         <p>Version for LCOS 1.0.1. No functional changes; the Supporters list is unchanged (72 names).</p>
